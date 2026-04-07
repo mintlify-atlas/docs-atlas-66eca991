@@ -1,0 +1,105 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "mold",
+  "projectDescription": "A modern, massively parallel Unix linker that is several times faster than GNU ld and LLVM lld, designed to minimize build times during rapid debug-edit-rebuild cycles.",
+  "theme": "aspen",
+  "primaryColor": "#43a243",
+  "lightColor": "#e08681",
+  "darkColor": "#a4d1a4",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Usage Guides",
+            "pages": [
+              "guides/using-with-gcc-clang",
+              "guides/using-with-rust",
+              "guides/using-with-build-systems",
+              "guides/mold-run"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/why-mold-is-fast",
+              "concepts/symbol-resolution",
+              "concepts/dynamic-linking",
+              "concepts/build-reproducibility"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "troubleshooting/verifying-mold-is-used",
+              "troubleshooting/common-issues",
+              "troubleshooting/debugging-dependencies"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Command Reference",
+            "pages": [
+              "reference/mold-options",
+              "reference/mold-specific-options",
+              "reference/gnu-compatible-options",
+              "reference/z-options"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "reference/environment-variables",
+              "reference/cmake-options",
+              "reference/supported-targets"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Massively parallel linking using Intel TBB for multi-core scalability",
+    "Drop-in replacement for GNU ld and ld.lld with full compatibility",
+    "Support for 20+ CPU architectures including x86-64, ARM64, RISC-V, PowerPC, and more",
+    "Deterministic, bit-for-bit reproducible output regardless of thread scheduling",
+    "Identical Code Folding (ICF) for output size optimization",
+    "Section garbage collection (--gc-sections) with parallel mark-sweep",
+    "Separate debug file generation (--separate-debug-file) for faster startup",
+    "Link-Time Optimization (LTO) support for GCC and Clang",
+    "mold -run wrapper to intercept ld calls without modifying build scripts",
+    "GDB index generation (--gdb-index) for faster debugging sessions"
+  ],
+  "publicApiSurface": [
+    "mold [options] file...",
+    "-fuse-ld=mold (Clang/GCC 12.1+)",
+    "-B/usr/libexec/mold (GCC before 12.1)",
+    "mold -run <command> [args]",
+    "--gc-sections",
+    "--icf=[safe|all|none]",
+    "--separate-debug-file",
+    "--gdb-index",
+    "--build-id=[md5|sha1|sha256|fast|uuid|none]",
+    "--compress-debug-sections=[zlib|zstd|none]",
+    "--version-script=<file>",
+    "--dynamic-list=<file>",
+    "--wrap=<symbol>",
+    "--thread-count=<n>",
+    "MOLD_JOBS environment variable",
+    "MOLD_DEBUG environment variable",
+    "MOLD_REPRO environment variable"
+  ]
+}

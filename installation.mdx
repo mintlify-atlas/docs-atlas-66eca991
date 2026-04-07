@@ -1,0 +1,154 @@
+---
+title: "Installation"
+description: "Install mold from a binary package, build it from source with CMake, or use it in GitHub Actions."
+---
+
+## Binary packages
+
+mold is packaged for most major Linux distributions and macOS. Check the current packaging status across repositories:
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/mold.svg)](https://repology.org/project/mold/versions)
+
+<Tabs>
+  <Tab title="Debian / Ubuntu">
+    ```bash
+    apt-get install mold
+    ```
+  </Tab>
+  <Tab title="Fedora / RHEL">
+    ```bash
+    dnf install mold
+    ```
+  </Tab>
+  <Tab title="Arch Linux">
+    ```bash
+    pacman -S mold
+    ```
+  </Tab>
+  <Tab title="NixOS">
+    Add `mold` to your `environment.systemPackages` in `configuration.nix`, or run it in a temporary shell:
+
+    ```bash
+    nix-shell -p mold
+    ```
+  </Tab>
+  <Tab title="macOS (Homebrew)">
+    ```bash
+    brew install mold
+    ```
+
+    <Note>
+      On macOS, mold only targets ELF binaries for cross-compilation use cases. It does not replace the macOS Mach-O linker.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Building from source
+
+mold is written in C++20. You need GCC 10.2 or Clang 16.0.0 (or later), and libstdc++ 10 or libc++ 7 (or later).
+
+### Install build dependencies
+
+A script is provided to detect your Linux distribution and install the required packages automatically:
+
+```bash
+./install-build-deps.sh
+```
+
+You may need to run this as root. The script supports the following distributions: Ubuntu/Debian, Fedora/RHEL/CentOS, Rocky Linux, openSUSE, Gentoo, Arch Linux, Void Linux, Alpine, Clear Linux, AlmaLinux, and FreeBSD.
+
+### Compile and install
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone --branch stable https://github.com/rui314/mold.git
+    cd mold
+    ```
+  </Step>
+  <Step title="Install build dependencies">
+    ```bash
+    ./install-build-deps.sh
+    ```
+  </Step>
+  <Step title="Configure with CMake">
+    ```bash
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=c++ -B build
+    ```
+
+    If `c++` does not point to a recent enough compiler, specify a version explicitly:
+
+    <CodeGroup>
+      ```bash GCC
+      cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-12 -B build
+      ```
+
+      ```bash Clang
+      cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++-16 -B build
+      ```
+    </CodeGroup>
+  </Step>
+  <Step title="Build">
+    ```bash
+    cmake --build build -j$(nproc)
+    ```
+  </Step>
+  <Step title="Install">
+    ```bash
+    sudo cmake --build build --target install
+    ```
+
+    By default, mold installs to `/usr/local/bin`. To change the prefix:
+
+    ```bash
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_CXX_COMPILER=c++ -B build
+    ```
+  </Step>
+</Steps>
+
+### CMake options
+
+Common options you can pass with `-D` to the configure step:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `CMAKE_INSTALL_PREFIX` | `/usr/local` | Installation prefix directory |
+| `CMAKE_CXX_COMPILER` | `c++` | C++ compiler command to use |
+| `CMAKE_BUILD_TYPE` | `Release` | Build type: `Debug`, `Release`, `RelWithDebInfo`, `MinSizeRel` |
+| `MOLD_USE_MOLD` | `OFF` | Build mold using mold itself |
+| `MOLD_LTO` | `OFF` | Enable link-time optimization |
+| `MOLD_USE_SYSTEM_TBB` | `OFF` | Link against the system's libtbb2.so instead of the bundled TBB |
+| `MOLD_USE_SYSTEM_MIMALLOC` | `OFF` | Link against the system's libmimalloc.so |
+
+<Tip>
+  Run `cmake -N -L .` inside the build directory to list all current variable values.
+</Tip>
+
+## Building portable binaries with Podman
+
+If your Linux distribution is too old to meet the compiler requirements, or if cmake does not work for your environment, use the provided `dist.sh` script. It pulls a container image, builds mold and auxiliary files inside it, and produces a self-contained tar archive:
+
+```bash
+./dist.sh
+```
+
+The output is a file named `dist/mold-$version-$arch-linux.tar.gz`. Extract it anywhere and use the `mold` executable inside — no system-wide installation needed:
+
+```bash
+tar xf dist/mold-*-linux.tar.gz
+./mold-*/bin/mold --version
+```
+
+## GitHub Actions
+
+Use the [`setup-mold`](https://github.com/rui314/setup-mold) action to install mold in GitHub-hosted runners. Even on a 4-core runner, mold is significantly faster than the default GNU linker for large programs.
+
+```yaml
+- uses: rui314/setup-mold@v1
+```
+
+Add this step before your build step. After the action runs, `mold` is available on `PATH` and set as the default linker.
+
+<Note>
+  The `setup-mold` action installs the latest stable release of mold and configures it as the system linker automatically.
+</Note>

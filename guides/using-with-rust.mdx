@@ -1,0 +1,77 @@
+---
+title: 'Using mold with Rust'
+description: 'Configure Cargo to use mold as the linker for Rust projects, either per-project or globally.'
+keywords: ['mold', 'rust', 'cargo', 'config.toml', 'rustflags', 'linker']
+---
+
+Cargo does not invoke the linker directly — it delegates to a compiler driver (typically `cc` or `gcc`). To use mold, you configure Cargo to pass the right flags through its linker driver.
+
+## Project-level configuration
+
+Create `.cargo/config.toml` in your project directory:
+
+<Tabs>
+  <Tab title="With Clang (recommended)">
+    Use Clang as the linker driver, since Clang always accepts `-fuse-ld` with an absolute path:
+
+    ```toml .cargo/config.toml
+    [target.'cfg(target_os = "linux")']
+    linker = "clang"
+    rustflags = ["-C", "link-arg=-fuse-ld=/path/to/mold"]
+    ```
+
+    Replace `/path/to/mold` with the absolute path to your mold executable (for example, `/usr/local/bin/mold`).
+
+    <Note>
+    An absolute path is required here because `LD_PRELOAD`-based interception is not used — Cargo passes the path directly to the linker driver.
+    </Note>
+  </Tab>
+  <Tab title="With GCC 12.1+">
+    If your GCC is version 12.1.0 or later, it recognizes `mold` as a valid linker name and you can omit the `linker = "clang"` line:
+
+    ```toml .cargo/config.toml
+    [target.'cfg(target_os = "linux")']
+    rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+    ```
+
+    <Warning>
+    This requires GCC 12.1.0 or later. Earlier versions will fail because they do not accept `mold` as an argument to `-fuse-ld`. Use the Clang approach above if you are on an older GCC.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Global configuration
+
+To use mold for all Rust projects on your machine, add the same snippet to your global Cargo config instead:
+
+<Tabs>
+  <Tab title="With Clang (recommended)">
+    ```toml ~/.cargo/config.toml
+    [target.'cfg(target_os = "linux")']
+    linker = "clang"
+    rustflags = ["-C", "link-arg=-fuse-ld=/path/to/mold"]
+    ```
+  </Tab>
+  <Tab title="With GCC 12.1+">
+    ```toml ~/.cargo/config.toml
+    [target.'cfg(target_os = "linux")']
+    rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+    ```
+  </Tab>
+</Tabs>
+
+## How it works
+
+The `[target.'cfg(target_os = "linux")']` section restricts the configuration to Linux builds, so the setting does not affect cross-compilation targets or macOS builds in the same workspace.
+
+The `rustflags` entry passes `-C link-arg=...` to rustc, which forwards the flag to the linker driver. The `linker = "clang"` entry overrides which compiler driver Cargo invokes, ensuring `-fuse-ld` with an absolute path is accepted.
+
+## Verifying that mold was used
+
+After building, use `readelf` to confirm mold was used:
+
+```shell
+readelf -p .comment target/debug/<your-binary>
+```
+
+The output should include a line containing `mold`.

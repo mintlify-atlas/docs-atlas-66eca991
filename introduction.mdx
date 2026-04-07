@@ -1,0 +1,81 @@
+---
+title: "Introduction"
+description: "mold is a faster drop-in replacement for Unix linkers, designed to minimize build times in rapid debug-edit-rebuild cycles."
+---
+
+## What is mold?
+
+mold is a high-performance linker for Unix systems. It replaces traditional linkers like GNU ld and GNU gold, and is several times faster than LLVM lld — previously the fastest open-source linker available. mold was created by the same author who originally developed lld.
+
+Linking is the second phase of a compiled-language build. After a compiler turns source files into object files (`.o`), the linker combines them into a final executable or shared library. For large projects with debug info enabled, this step can take many seconds with older linkers. mold eliminates most of that wait.
+
+mold is so fast that, on a 16-core/32-thread machine, it is only 2× slower than the `cp` command copying the same data.
+
+## Performance comparison
+
+The following table shows link times for major programs with debuginfo enabled on a simulated 16-core, 32-thread machine:
+
+| Program (output size)   | GNU ld  | GNU gold | LLVM lld | mold   |
+|-------------------------|---------|----------|----------|--------|
+| MySQL 8.3 (0.47 GiB)    | 10.84s  | 7.47s    | 1.64s    | 0.46s  |
+| Clang 19 (1.56 GiB)     | 42.07s  | 33.13s   | 5.20s    | 1.35s  |
+| Chromium 124 (1.35 GiB) | N/A     | 27.40s   | 6.10s    | 1.52s  |
+
+## Supported architectures
+
+mold supports the following instruction set architectures:
+
+- x86-64 and i386
+- ARM64 and ARM32
+- 64-bit and 32-bit little-endian and big-endian RISC-V
+- 32-bit PowerPC
+- 64-bit big-endian PowerPC ELFv1
+- 64-bit little-endian PowerPC ELFv2
+- s390x
+- 64-bit and 32-bit LoongArch
+- SPARC64
+- m68k
+- SH-4
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Massively parallel" icon="microchip">
+    mold uses all available CPU cores throughout the entire linking process, unlike other linkers that serialize most of their work.
+  </Card>
+  <Card title="Drop-in replacement" icon="arrows-rotate">
+    mold accepts the same command-line options as GNU ld. Switch with a single compiler flag — no build system changes required.
+  </Card>
+  <Card title="Deterministic output" icon="equals">
+    Given the same inputs and options, mold always produces bit-for-bit identical output regardless of thread scheduling or hash table iteration order.
+  </Card>
+  <Card title="Order-insensitive archive resolution" icon="layer-group">
+    Like LLVM lld, mold is not sensitive to input file order when resolving symbols from archive (`.a`) files.
+  </Card>
+  <Card title="Separate debug files" icon="bug">
+    The `--separate-debug-file` option bundles debug info into a `.dbg` file generated in the background, so your executable is ready immediately.
+  </Card>
+  <Card title="ICF (Identical Code Folding)" icon="compress">
+    The `--icf` option merges duplicate functions to reduce binary size, with both `safe` and `all` modes available.
+  </Card>
+</CardGroup>
+
+## Why is mold so fast?
+
+mold uses faster algorithms and more efficient data structures than other linkers, and is designed for maximum parallelism from the ground up. While lld fails to utilize available cores for most of its execution, mold keeps all cores busy throughout the link.
+
+For a detailed explanation of the design decisions behind mold's performance, see the [design notes](https://github.com/rui314/mold/blob/main/docs/design.md).
+
+## Explore the docs
+
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install mold from a package manager or build it from source.
+  </Card>
+  <Card title="Quick start" icon="bolt" href="/quickstart">
+    Start using mold with your existing build system in minutes.
+  </Card>
+  <Card title="Manual page" icon="book" href="https://github.com/rui314/mold/blob/main/docs/mold.md">
+    Full reference for all command-line options and environment variables.
+  </Card>
+</CardGroup>

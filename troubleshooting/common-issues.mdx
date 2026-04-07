@@ -1,0 +1,177 @@
+---
+title: 'Common issues'
+description: 'Solutions to frequently encountered problems when using the mold linker, including GCC flags, LTO, OOM errors, and more.'
+keywords: ['mold', 'linker', 'troubleshooting', 'GCC', 'LTO', 'MOLD_JOBS', 'text busy', 'ld.mold']
+---
+
+## mold is slower than expected
+
+mold is designed to use as many threads as available CPU cores (up to 32). If linking is slower than expected, check whether parallelism is being limited.
+
+<AccordionGroup>
+  <Accordion title="Check the thread count">
+    By default, mold uses `min(nproc, 32)` threads. You can inspect or override this:
+
+    ```bash
+    # Use a specific number of threads
+    mold --thread-count=8 ...
+
+    # Disable threading entirely (for profiling/debugging)
+    mold --no-threads ...
+    ```
+
+    If your build system invokes the linker via a wrapper that sets `--no-threads` or `--thread-count=1`, parallelism will be suppressed. Check the flags passed to the linker with `MOLD_DEBUG=1`.
+  </Accordion>
+
+  <Accordion title="Multiple concurrent mold instances">
+    If your build system runs multiple link steps in parallel, each mold instance competes for CPU and memory. This can cause all instances to slow down or be killed by the OOM killer. Use `MOLD_JOBS=1` to serialize linker invocations (see [Out-of-memory errors](#out-of-memory-errors-mold_jobs) below).
+  </Accordion>
+</AccordionGroup>
+
+## GCC doesn't accept an absolute path for -fuse-ld
+
+GCC does not accept an absolute file path as an argument to `-fuse-ld`. The following will fail with older GCC versions:
+
+```bash
+# This does NOT work with GCC
+gcc -fuse-ld=/usr/local/bin/mold main.c
+```
+
+Use the `-B` flag instead, pointing GCC to the directory containing a symlink named `ld` that resolves to mold:
+
+```bash
+# Use the mold-provided ld wrapper directory
+gcc -B/usr/libexec/mold main.c
+
+# Or if installed to a custom prefix
+gcc -B/usr/local/libexec/mold main.c
+```
+
+The `-B` flag tells GCC where to look for external programs like `ld`. The mold installation places an `ld` symlink in `<prefix>/libexec/mold/`.
+
+<Note>
+GCC 12.1.0 and later accept `-fuse-ld=mold` directly (without a path), provided `mold` is on your `$PATH`. For GCC before 12.1.0, the `-B` workaround is required.
+
+Clang always accepts `-fuse-ld=mold` and also accepts an absolute path.
+</Note>
+
+## "text busy" error
+
+If mold reports a "text busy" error, it means it attempted to overwrite an executable file that is currently running. This is expected OS behavior — the kernel prevents in-place modification of an executing binary.
+
+mold handles this gracefully: when it cannot overwrite the output file directly, it falls back to writing a new file and then atomically replacing the old one. This fallback is safe and transparent.
+
+<Tip>
+If you see "text busy" repeatedly, it usually means a running process holds the output file open. This is not a mold bug and requires no action.
+</Tip>
+
+## LTO (Link-Time Optimization) issues
+
+When using LTO, the compiler embeds intermediate representation (IR) in object files instead of machine code. The linker must invoke the compiler plugin to process them.
+
+For LTO to work with mold, pass the plugin path explicitly:
+
+<CodeGroup>
+
+```bash GCC
+gcc -flto -fuse-ld=mold -B/usr/libexec/mold \
+    -Wl,--plugin=$(gcc --print-file-name=liblto_plugin.so) \
+    main.c -o main
+```
+
+```bash Clang
+clang -flto -fuse-ld=mold main.c -o main
+```
+
+</CodeGroup>
+
+<Note>
+Clang handles the LTO plugin automatically when using `-fuse-ld=mold`. With GCC, you may need to pass `--plugin` explicitly depending on your version and distribution.
+</Note>
+
+## Linker script compatibility
+
+mold supports only a limited subset of the GNU linker script language — specifically, just enough to parse `/usr/lib/x86_64-linux-gnu/libc.so`, which on Linux is an ASCII linker script that loads the real `libc.so`.
+
+```bash
+# This file is actually a linker script, not a shared library
+file /usr/lib/x86_64-linux-gnu/libc.so
+# OUTPUT: /usr/lib/x86_64-linux-gnu/libc.so: ASCII text
+```
+
+If your project uses custom linker scripts beyond this scope, they may not be compatible with mold. There are no plans to expand linker script support; a simpler replacement mechanism is planned instead.
+
+<Warning>
+Complex linker scripts that work with GNU ld are likely to fail or be silently ignored with mold. Audit your build system for `-T`/`--script` flags if you encounter unexpected section layout issues.
+</Warning>
+
+## --allow-shlib-undefined vs --no-allow-shlib-undefined
+
+By default, mold ignores undefined symbols in shared libraries (`--allow-shlib-undefined`). This means a link can succeed at build time, but fail at runtime with a symbol lookup error from the dynamic linker.
+
+To catch these errors at link time instead:
+
+```bash
+mold --no-allow-shlib-undefined ...
+```
+
+<Note>
+For `--no-allow-shlib-undefined` to work correctly, all shared libraries — including indirect dependencies — must be passed to the linker via `-l`. If a transitive dependency is missing, its symbols cannot be verified and the check is skipped for that library.
+</Note>
+
+## Out-of-memory errors (MOLD_JOBS)
+
+Because mold is highly parallel, running multiple mold instances at the same time (as many build systems do) can multiply peak memory usage by the number of concurrent instances.
+
+Set `MOLD_JOBS=1` to ensure only one mold process runs at a time:
+
+```bash
+export MOLD_JOBS=1
+make -j$(nproc)
+```
+
+With `MOLD_JOBS=1`, if a new mold process is started while another is already running, the new process waits until the first completes. Total wall-clock time stays the same, but peak memory usage is capped at a single instance.
+
+<Tip>
+`MOLD_JOBS=1` is the recommended first step when debugging OOM kills during parallel builds. Currently, any value other than `1` is ignored.
+</Tip>
+
+## Undefined symbol errors and archive ordering
+
+Traditional Unix linkers process archives (`.a` files) left-to-right and pull out only what is needed at the time each archive is visited. This means archive order on the command line matters.
+
+mold (like LLVM lld) is order-independent. It remembers which symbols archives can provide and resolves them even if the archive appeared earlier on the command line than the object that needs it.
+
+```bash
+# With GNU ld, this might fail if libfoo.a needs a symbol from libbar.a
+# With mold, order does not matter
+mold -o output libfoo.a libbar.a main.o
+```
+
+`--start-group` / `--end-group` are accepted by mold for compatibility but are silently ignored.
+
+<Note>
+If you are seeing undefined symbol errors specifically after switching to mold, the issue is likely not archive ordering. Check for genuinely missing symbols or missing `-l` flags.
+</Note>
+
+## Missing ld.mold symlink
+
+Some tools and build systems look for a linker named `ld.mold` in `$PATH`. If mold was installed without this symlink, those tools will fail to find it.
+
+Check whether `ld.mold` exists:
+
+```bash
+which ld.mold
+ls -la $(dirname $(which mold))/ld.mold
+```
+
+If it is missing, create the symlink manually:
+
+```bash
+# Adjust paths to match your installation
+sudo ln -s /usr/local/bin/mold /usr/local/bin/ld.mold
+```
+
+<Note>
+Official mold packages and the CMake install target create `ld.mold` automatically. If you installed mold by copying the binary manually, you may need to add the symlink yourself.
+</Note>

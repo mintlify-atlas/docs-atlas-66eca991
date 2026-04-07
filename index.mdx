@@ -1,97 +1,72 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "mold — A Modern Linker"
+description: "The fastest linker for Unix systems. mold is a drop-in replacement for GNU ld and LLVM lld, delivering link times several times faster thanks to aggressive parallelism."
 ---
 
-## Setting up
+mold is a modern, massively parallel Unix linker designed to minimize build times — especially during rapid debug-edit-rebuild cycles. It is several times faster than the LLVM lld linker, which was itself a major improvement over GNU ld.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install mold from your package manager or build it from source
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get mold working with your compiler in minutes
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Usage Guides" icon="book" href="/guides/using-with-gcc-clang">
+    Integrate mold with GCC, Clang, Rust, CMake, and more
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Command Reference" icon="terminal" href="/reference/mold-options">
+    Full reference for every mold command-line option
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Why mold?
 
-Everything you need to create world-class documentation.
+Linking is the final step of every C, C++, or Rust build — and it can be surprisingly slow. mold addresses this with a fundamentally parallel architecture that keeps all CPU cores busy throughout the linking process.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+| Program (output size)         | GNU ld  | GNU gold | LLVM lld | mold   |
+|-------------------------------|---------|----------|----------|--------|
+| MySQL 8.3 (0.47 GiB)          | 10.84s  | 7.47s    | 1.64s    | 0.46s  |
+| Clang 19 (1.56 GiB)           | 42.07s  | 33.13s   | 5.20s    | 1.35s  |
+| Chromium 124 (1.35 GiB)       | N/A     | 27.40s   | 6.10s    | 1.52s  |
 
-## Need inspiration?
+<CardGroup cols={2}>
+  <Card title="Why mold is fast" icon="gauge-high" href="/concepts/why-mold-is-fast">
+    Learn about mold's parallel architecture and algorithmic improvements
+  </Card>
+  <Card title="Supported targets" icon="microchip" href="/reference/supported-targets">
+    x86-64, ARM64, RISC-V, PowerPC, s390x, and 15+ more architectures
+  </Card>
+  <Card title="Build reproducibility" icon="clone" href="/concepts/build-reproducibility">
+    Deterministic, bit-for-bit identical output guaranteed
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/troubleshooting/verifying-mold-is-used">
+    Verify mold is active and diagnose common issues
+  </Card>
+</CardGroup>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Key features
+
+- **Massively parallel** — uses all CPU cores throughout the entire link process
+- **Drop-in replacement** — fully compatible with GNU ld command-line interface
+- **20+ architectures** — x86-64, i386, ARM64, ARM32, RISC-V, PowerPC, s390x, SPARC64, m68k, SH-4, LoongArch
+- **Reproducible builds** — identical output for identical inputs, always
+- **ICF** — Identical Code Folding merges duplicate functions to reduce output size
+- **LTO support** — works with GCC and Clang link-time optimization
+- **Separate debug files** — bundles debug info separately so executables launch faster
+- **GDB index** — generates `.gdb_index` for faster debug sessions
+
+<Steps>
+  <Step title="Install mold">
+    Install via your Linux distribution's package manager, or build from source with CMake.
+  </Step>
+  <Step title="Point your compiler at mold">
+    Pass `-fuse-ld=mold` to Clang or GCC 12.1+. For older GCC, use `-B/usr/libexec/mold`.
+  </Step>
+  <Step title="Build your project">
+    Run your normal build command. mold intercepts the linker invocation automatically.
+  </Step>
+  <Step title="Verify">
+    Confirm mold was used by running `readelf -p .comment <your-binary>` and checking for the mold identifier.
+  </Step>
+</Steps>

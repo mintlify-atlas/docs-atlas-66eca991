@@ -1,0 +1,73 @@
+---
+title: 'The mold -run command'
+description: 'Use mold -run to intercept linker invocations in any build system without modifying build configuration files.'
+keywords: ['mold', 'mold -run', 'LD_PRELOAD', 'mold-wrapper.so', 'intercept linker']
+---
+
+`mold -run` is an escape hatch for situations where you cannot or do not want to modify your build system's configuration to pass `-fuse-ld=mold`. It uses `LD_PRELOAD` to intercept every linker invocation inside the build process and redirect it to mold automatically.
+
+## Usage
+
+Prefix your build command with `mold -run`:
+
+```shell
+mold -run make <make-options-if-any>
+```
+
+Any build command works, not just `make`:
+
+<CodeGroup>
+
+```shell make
+mold -run make -j$(nproc)
+```
+
+```shell cmake build
+mold -run cmake --build build -j$(nproc)
+```
+
+```shell ninja
+mold -run ninja
+```
+
+```shell cargo
+mold -run cargo build
+```
+
+</CodeGroup>
+
+## How it works
+
+When you invoke `mold -run <command>`, mold sets the `LD_PRELOAD` environment variable to point at a companion shared library called `mold-wrapper.so`. This library intercepts all calls to the `exec(3)` family of functions (such as `execve`, `execvp`, etc.) made by the build process and any of its children.
+
+If the executable being launched is named `ld`, `ld.bfd`, `ld.gold`, or `ld.lld`, the wrapper replaces `argv[0]` with the path to `mold` before the exec actually happens. From the perspective of every process in the build, the linker is transparently swapped out for mold.
+
+The interception is recursive: any subprocess spawned by your build command also inherits `LD_PRELOAD`, so the override applies to the entire process tree.
+
+## When to use `mold -run` vs `-fuse-ld=mold`
+
+<CardGroup cols={2}>
+  <Card title="-fuse-ld=mold" icon="sliders">
+    Preferred when you control the build configuration. More explicit, reliable, and does not depend on `LD_PRELOAD`. Works per-compiler-invocation and is composable with other flags.
+  </Card>
+  <Card title="mold -run" icon="terminal">
+    Useful when the build system is opaque or generated, when you cannot pass flags to the compiler driver, or when you want to test mold on an existing build without any config changes.
+  </Card>
+</CardGroup>
+
+## Limitations and caveats
+
+<Warning>
+`mold -run` uses `LD_PRELOAD` and therefore only works with dynamically linked executables. Statically linked linker binaries cannot be intercepted this way.
+</Warning>
+
+- The interception only applies to processes whose executable name is exactly `ld`, `ld.bfd`, `ld.gold`, or `ld.lld`. Linkers invoked by a different name will not be redirected.
+- If `LD_PRELOAD` is cleared or overridden by the build system before spawning the linker, interception will not work.
+- Because `mold -run` wraps the entire build command, it cannot selectively apply mold to only some link steps. If you need per-target control, use `-fuse-ld=mold` in the build configuration instead.
+- The `mold-wrapper.so` shared library must be present on the system. It is installed alongside `mold` by default.
+
+## Relationship to `--run`
+
+The command-line spelling `mold -run <command>` is equivalent to `mold --run <command>`. The man page documents this as:
+
+> `--run` *command* *arg*...: Run *command* with mold as `/usr/bin/ld`. Specifically, mold runs a given command with the `LD_PRELOAD` environment set to intercept `exec(3)` family functions and replaces `argv[0]` with itself if it is `ld`, `ld.gold`, or `ld.lld`.

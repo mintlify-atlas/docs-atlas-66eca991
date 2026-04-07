@@ -1,0 +1,102 @@
+---
+title: 'Using mold with GCC and Clang'
+description: 'How to configure GCC and Clang to use mold as the linker, including version-specific options and absolute path usage.'
+keywords: ['mold', 'gcc', 'clang', 'linker', 'fuse-ld', '-B option']
+---
+
+On Unix, the linker is invoked indirectly by the compiler driver (`cc`, `gcc`, or `clang`), which is in turn invoked by your build system. To use mold, you need to tell the compiler driver to select it instead of the default `/usr/bin/ld`.
+
+## Clang
+
+Pass `-fuse-ld=mold` to Clang:
+
+```shell
+clang -fuse-ld=mold -o output main.c
+```
+
+Clang always accepts `mold` as a valid argument to `-fuse-ld`.
+
+## GCC
+
+<Tabs>
+  <Tab title="GCC 12.1 or later">
+    GCC 12.1.0 added support for `mold` as a recognized value for `-fuse-ld`:
+
+    ```shell
+    gcc -fuse-ld=mold -o output main.c
+    ```
+  </Tab>
+  <Tab title="GCC before 12.1">
+    Older versions of GCC do not recognize `mold` as a valid argument to `-fuse-ld`. Use the `-B` option instead, which tells GCC where to look for external commands like `ld`.
+
+    When mold is installed, a directory named `/usr/libexec/mold` (or `/usr/local/libexec/mold`, depending on your `$PREFIX`) is created, containing an `ld` symlink that points to `mold`. Pass that directory with `-B`:
+
+    ```shell
+    gcc -B/usr/libexec/mold -o output main.c
+    ```
+
+    Or, if mold was installed under a custom prefix:
+
+    ```shell
+    gcc -B/usr/local/libexec/mold -o output main.c
+    ```
+  </Tab>
+</Tabs>
+
+## Using an absolute path
+
+If you have not installed `ld.mold` to any directory on `$PATH`, you can still point Clang directly at the mold binary with an absolute path:
+
+```shell
+clang -fuse-ld=/absolute/path/to/mold -o output main.c
+```
+
+<Warning>
+GCC does not accept an absolute path as the argument to `-fuse-ld`. If you need to use mold with an older GCC without installing it system-wide, use the `-B` approach described above with a directory containing a symlink named `ld` that points to your mold binary.
+</Warning>
+
+## Passing linker flags through the compiler
+
+When compiling and linking in one step, use `-Wl,` to pass options directly to the linker:
+
+```shell
+clang -fuse-ld=mold -Wl,--as-needed -o output main.c
+```
+
+## Verifying that mold was used
+
+mold embeds its identification string in the `.comment` section of the output file. Use `readelf` to confirm:
+
+```shell
+readelf -p .comment <executable-file>
+```
+
+You should see output like:
+
+```text
+String dump of section '.comment':
+  [     0]  GCC: (Ubuntu 10.2.0-5ubuntu1~20.04) 10.2.0
+  [    2b]  mold 9a1679b47d9b22012ec7dfbda97c8983956716f7
+```
+
+If `mold` appears in the `.comment` section, the file was linked by mold.
+
+## Build system examples
+
+<CodeGroup>
+
+```shell make
+# Pass via LDFLAGS
+make LDFLAGS="-fuse-ld=mold"
+```
+
+```shell cmake
+cmake -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=mold" -B build
+cmake --build build
+```
+
+</CodeGroup>
+
+<Tip>
+For large projects with many parallel link steps, set the `MOLD_JOBS=1` environment variable to serialize mold invocations and reduce peak memory usage.
+</Tip>

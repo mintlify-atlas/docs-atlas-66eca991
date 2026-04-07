@@ -1,0 +1,110 @@
+---
+title: 'Environment variables'
+description: 'Environment variables that control mold linker behavior at runtime.'
+keywords: ['mold', 'environment variables', 'MOLD_JOBS', 'MOLD_DEBUG', 'MOLD_REPRO', 'LD_PRELOAD']
+---
+
+mold reads a small set of environment variables to control its runtime behavior. These complement the command-line options and are particularly useful for system-wide configuration or when you cannot modify the linker invocation directly.
+
+## `MOLD_JOBS`
+
+Limits the number of mold processes that can run concurrently on the machine.
+
+| Property | Value |
+|----------|-------|
+| Valid values | `1` (any other value is silently ignored) |
+| Default | Unset — no limit on concurrent processes |
+
+When set to `1`, only one mold process will run at a time. If a new mold process is started while another is already active, the new process waits until the active one completes before starting.
+
+**Use case: preventing out-of-memory errors**
+
+Because mold is designed for high parallelism, running multiple instances simultaneously multiplies memory consumption. If your build system invokes N linker processes concurrently, peak memory usage can be N times that of a single run. Setting `MOLD_JOBS=1` serializes these invocations so that peak memory stays equivalent to a single mold run — at the cost of total elapsed time remaining the same.
+
+```bash
+export MOLD_JOBS=1
+make -j$(nproc)
+```
+
+<Note>
+Only the value `"1"` has any effect. All other values (for example, `"2"` or `"4"`) are silently ignored. There is currently no way to set a limit other than 1.
+</Note>
+
+---
+
+## `MOLD_DEBUG`
+
+Embeds the command-line options used during a link into the output file's `.comment` section.
+
+| Property | Value |
+|----------|-------|
+| Valid values | Any non-empty string |
+| Default | Unset — command-line options are not embedded |
+
+When set to a non-empty string, mold writes its full command-line invocation into the `.comment` section of the output file. This makes it possible to reconstruct exactly how a binary was linked by inspecting the file with `readelf`.
+
+```bash
+export MOLD_DEBUG=1
+# Link as usual — the command line will appear in .comment
+gcc -o my_program main.o -fuse-ld=mold
+
+# Inspect the embedded options
+readelf -p .comment my_program
+```
+
+**Use case: build auditing and debugging**
+
+Useful when debugging unexpected linker behavior or auditing build reproducibility. Because the exact command line is recorded in the binary itself, you do not need separate build logs to understand how a particular output was produced.
+
+<Tip>
+`MOLD_DEBUG` records options in the same `.comment` section that mold uses for its version string. You can read both with `readelf -p .comment <file>`.
+</Tip>
+
+---
+
+## `MOLD_REPRO`
+
+Creates a reproducible tar archive of all linker inputs, equivalent to passing `--repro` on the command line.
+
+| Property | Value |
+|----------|-------|
+| Valid values | Any non-empty string |
+| Default | Unset — no archive is created |
+
+Setting this variable to a non-empty string has the exact same effect as the `--repro` command-line option. mold archives all input files and a text file containing the command-line options into a tar file. The output filename is `<output>.tar`, where `<output>` is the path specified by `-o`.
+
+```bash
+export MOLD_REPRO=1
+gcc -o my_program main.o -fuse-ld=mold
+# Produces my_program and my_program.tar
+```
+
+**Use case: filing bug reports**
+
+The resulting tar file contains everything needed to reproduce the exact link step. You can send it to a mold developer or attach it to a GitHub issue so that the problem can be reproduced without sharing your full source tree.
+
+<Warning>
+Reproducible archives can be large because they contain copies of every input object file and library. Make sure you have sufficient disk space before enabling this in large builds.
+</Warning>
+
+---
+
+## `LD_PRELOAD`
+
+Used internally by `mold -run` to intercept linker invocations.
+
+| Property | Value |
+|----------|-------|
+| Set by | mold itself — not intended for direct user configuration |
+| Default | Unset |
+
+When you run `mold -run <command>`, mold sets `LD_PRELOAD` to the path of its companion shared object (`mold-wrapper.so`) before executing the given command. This shared object intercepts calls to the `exec(3)` family of functions and replaces `argv[0]` with `mold` whenever the invoked program is `ld`, `ld.gold`, or `ld.lld`.
+
+```bash
+# mold sets LD_PRELOAD automatically — you do not set it yourself
+mold -run make
+```
+
+<Note>
+You do not need to set `LD_PRELOAD` manually. It is set and managed by mold when using the `-run` subcommand. Manually setting it to `mold-wrapper.so` without also configuring the related state is not supported and will not work correctly.
+</Note>

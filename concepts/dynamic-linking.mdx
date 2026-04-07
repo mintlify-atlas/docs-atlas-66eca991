@@ -1,0 +1,121 @@
+---
+title: Dynamic linking
+description: How ELF dynamic symbol resolution works at runtime, including search order, import/export semantics, symbol override, PLT/GOT, and binding modes.
+---
+
+Dynamic linking is more subtle than static linking. Understanding it is essential to understanding why certain linker behaviors exist and how to control them.
+
+## ELF modules
+
+An **ELF module** is either an executable file or a shared library (DSO — Dynamic Shared Object) in the ELF format. A running program is composed of one or more ELF modules loaded together by the dynamic linker.
+
+Each ELF module can have:
+- A list of **imported symbols**: symbols the module uses but expects to be provided by another module at runtime.
+- A list of **exported symbols**: symbols this module provides for other modules to use.
+- A list of **shared library names**: the DSOs the module depends on.
+
+Importantly, imported symbols are not bound to any specific shared library until the program actually starts. The binding happens at runtime, not at link time.
+
+## Dynamic symbol search order
+
+When a program starts, the dynamic linker constructs an ordered list of all ELF modules that make up the complete program:
+
+1. The executable itself is always first.
+2. Its dependent shared libraries follow, in the order they appear in the executable's dependency list.
+3. Their transitive dependencies follow recursively.
+
+When resolving an imported symbol, the dynamic linker searches through this list from beginning to end and uses the **first** definition it finds. If the same symbol is defined in multiple modules, the definition in the earlier module wins.
+
+<Info>
+This is a flat, single-namespace model. Every module shares the same symbol namespace. This is fundamentally different from Windows, which uses a two-level namespace where each dynamic symbol is a tuple of `(symbol-name, library-name)` and is always resolved from a specific library.
+</Info>
+
+## Import and export simultaneously
+
+A module that exports a symbol typically also imports the same symbol. This may seem paradoxical, but it is intentional.
+
+Consider a shared library that defines and uses a function `malloc`. The library both:
+- Exports `malloc` so other modules can use it.
+- Imports `malloc` so that its own internal calls to `malloc` go through the dynamic linker's resolution process.
+
+This means that at runtime, a module's own calls to its exported symbols can be redirected to a different definition—one that appears earlier in the dynamic linker's module list.
+
+## Symbol override example: malloc
+
+The `malloc` override pattern illustrates these semantics clearly.
+
+Assume you define your own `malloc` in your main executable:
+
+```c
+// In your executable
+void *malloc(size_t size) {
+    // custom implementation
+}
+```
+
+Because the executable is always first in the dynamic linker's search list, all calls to `malloc` from **any** loaded module—including calls from within libc itself—resolve to your definition. This works because libc exports and imports `malloc`: libc's own `malloc` calls go through the dynamic linker and are redirected to your definition.
+
+The result: your custom allocator completely replaces the one in libc, and libc's original `malloc` becomes dead code.
+
+<Warning>
+This behavior applies to any global symbol name. If you accidentally define a function with the same name as a standard library function (e.g., `atoi`), all calls to that function from any loaded module—even calls inside libc—will be redirected to your version. This can cause subtle, hard-to-debug failures.
+</Warning>
+
+## Contrast with Windows two-level namespace
+
+On Windows, a dynamic symbol import is represented as a tuple: `(symbol-name, library-name)`. Each import is resolved from a specific, named library. There is no possibility of one library's symbol silently overriding another's.
+
+ELF's single-level namespace is more flexible (it enables transparent interposition of library functions) but also more error-prone (accidental name conflicts have global effects).
+
+## --Bsymbolic: disabling import for a shared library
+
+If you are building a shared library and want its internal calls to always resolve locally—bypassing the override mechanism—use `--Bsymbolic`:
+
+```bash
+mold --shared --Bsymbolic -o libfoo.so foo.o
+```
+
+With `--Bsymbolic`, symbols defined in the shared library are export-only. References within the library always resolve to the local definition, not to whatever is first in the dynamic linker's module list. Related flags:
+
+| Flag | Effect |
+|------|--------|
+| `--Bsymbolic` | All global symbols are export-only |
+| `--Bsymbolic-functions` | Only function symbols are export-only |
+| `--Bsymbolic-non-weak` | Only non-weak symbols are export-only |
+
+## PLT and GOT
+
+Direct calls between ELF modules are not possible when shared libraries can be loaded at arbitrary addresses. Two indirection tables make cross-module calls work:
+
+**GOT (Global Offset Table)**: A table of absolute addresses filled in by the dynamic linker at load time. When code needs the address of an external symbol, it reads the address from the GOT rather than using a hardcoded value.
+
+**PLT (Procedure Linkage Table)**: A table of small trampolines. A call to an external function goes to a PLT entry, which in turn jumps through the GOT. This allows the dynamic linker to patch the GOT entry without modifying the call instruction.
+
+During linking, mold scans all relocation tables to determine which symbols require GOT entries and which require PLT entries, and sizes these sections accordingly.
+
+## Lazy vs. now binding
+
+By default, PLT entries use **lazy binding**: the dynamic linker resolves a function's address the first time it is called, not at program startup. This reduces startup time for programs that use only a fraction of their imported functions.
+
+**`-z now`** changes this to **eager binding**: all dynamic symbols are resolved when the module is loaded into memory, before any code runs. This increases startup time slightly but:
+- Eliminates the per-call overhead of lazy resolution on the first call.
+- Makes symbol lookup failures occur at startup rather than mid-execution.
+- Is required for certain security features.
+
+**`-z lazy`** restores the default lazy binding behavior.
+
+<Tip>
+Use `-z now` in security-sensitive applications or when you want to catch missing symbol errors at startup rather than at runtime.
+</Tip>
+
+## RELRO: read-only after relocation
+
+Some ELF sections, such as `.dynamic` and the GOT, must be writable during module loading (so the dynamic linker can fill them in) but should be read-only during normal program execution.
+
+**RELRO** (RELocation Read-Only) is a mitigation that marks these sections read-only after the dynamic linker finishes its initialization. An attacker who gains the ability to write arbitrary memory cannot overwrite GOT entries to redirect function calls if RELRO is active.
+
+mold generates a RELRO segment by default. Use `-z norelro` to disable it.
+
+<Note>
+Full RELRO (combining RELRO with `-z now`) makes the entire GOT read-only after startup, since eager binding means the GOT is fully populated before execution begins. This is the strongest configuration against GOT-overwrite attacks.
+</Note>

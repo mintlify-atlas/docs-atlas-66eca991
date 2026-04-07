@@ -1,0 +1,91 @@
+---
+title: 'Verifying mold is being used'
+description: 'How to confirm that mold is actually being invoked as your linker, using readelf and environment variables.'
+keywords: ['mold', 'linker', 'verify', 'readelf', 'comment section', 'MOLD_DEBUG']
+---
+
+After configuring your build system to use mold, it's worth confirming that it is actually being invoked. A common pitfall is that the build system uses cached object files or a previously configured linker, silently bypassing mold.
+
+## Using readelf to inspect the .comment section
+
+mold embeds an identification string in the `.comment` section of every output file it produces. You can read this section with `readelf`:
+
+```bash
+readelf -p .comment <executable-file>
+```
+
+If mold linked the file, its identifier will appear in the output:
+
+```text
+String dump of section '.comment':
+  [     0]  GCC: (Ubuntu 10.2.0-5ubuntu1~20.04) 10.2.0
+  [    2b]  mold 9a1679b47d9b22012ec7dfbda97c8983956716f7
+```
+
+The `mold` entry includes a hash — a 40-character hex string that uniquely identifies the exact build of mold that produced the file. If `mold` does not appear in the output, the executable was not linked by mold.
+
+<Note>
+The `.comment` section may contain entries from multiple tools (compilers, assemblers, other linkers). Look specifically for a line starting with `mold` followed by a hash string.
+</Note>
+
+## Embedding command-line options with MOLD_DEBUG
+
+Setting the `MOLD_DEBUG` environment variable to any non-empty string causes mold to embed its full command-line options in the `.comment` section of the output file:
+
+```bash
+MOLD_DEBUG=1 make
+```
+
+After the build, inspect the `.comment` section again:
+
+```bash
+readelf -p .comment ./my-executable
+```
+
+You will see the mold invocation arguments alongside the version identifier, which is useful for verifying exactly which flags were passed to the linker.
+
+<Tip>
+`MOLD_DEBUG=1` is especially helpful when debugging build system integration issues, because it makes the exact linker invocation visible in the binary itself.
+</Tip>
+
+## Common pitfall: cached objects from before mold was set up
+
+If you configure mold after a partial build, the build system may reuse cached `.o` files and skip re-linking. The resulting executable may appear unchanged, still showing the old linker in `.comment`.
+
+<Warning>
+If `readelf -p .comment` does not show `mold` after you've configured it, try a clean rebuild:
+
+```bash
+make clean && make
+```
+
+or the equivalent for your build system (e.g. `cargo clean`, `cmake --build . --clean-first`).
+</Warning>
+
+## Quick reference
+
+<AccordionGroup>
+  <Accordion title="What does the mold identifier look like?">
+    The mold identifier is the word `mold` followed by a 40-character SHA-1-like hex hash, for example:
+
+    ```text
+    mold 9a1679b47d9b22012ec7dfbda97c8983956716f7
+    ```
+
+    This hash identifies the specific build of mold. Different versions or builds of mold will have different hashes.
+  </Accordion>
+
+  <Accordion title="What if .comment is absent entirely?">
+    Some build configurations strip the `.comment` section (e.g. with `-Wl,--strip-debug` or `strip`). In that case, `readelf -p .comment` will report that no such section exists. Try inspecting an unstripped intermediate build artifact instead.
+  </Accordion>
+
+  <Accordion title="Can I check without readelf?">
+    Yes. The `strings` command can also find the identifier, though it is less precise:
+
+    ```bash
+    strings <executable-file> | grep mold
+    ```
+
+    Use `readelf` for definitive confirmation.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,94 @@
+---
+title: Symbol resolution
+description: How mold resolves symbols across object files and static archives, including its order-independent archive resolution algorithm and handling of weak and common symbols.
+---
+
+Symbol resolution is the process of matching every undefined symbol reference to a definition. This is one of the most computationally intensive stages of linking. mold's approach differs from traditional Unix linkers in important ways.
+
+## What is a symbol?
+
+A symbol is a label pointing to a specific location in an object file or the final output. When you write a function `foo` in C, the compiler emits a defined symbol `foo` pointing to the start of the function's machine code. When another translation unit calls `foo`, the compiler emits an undefined symbol `foo` that the linker must resolve to the definition.
+
+C++ symbols are "mangled": because C++ has namespaces, classes, and overloading, a bare name like `foo` cannot uniquely identify a function. A function `int foo(int)` in namespace `bar` becomes `_ZN3bar3fooEi` after mangling.
+
+## Object files vs. static libraries
+
+The linker treats these two input types differently:
+
+- **Object files** (`.o`) given directly on the command line are always linked into the output, regardless of whether any of their symbols are referenced.
+- **Static libraries** (`.a` archives) act as a supplement. An object file inside an archive is only extracted and linked if it defines a symbol that is currently undefined elsewhere.
+
+This distinction exists for a practical reason: libraries like `libc` contain hundreds of separate object files, one per function. You want only the functions you actually use to be linked into your binary.
+
+<Info>
+mold does not use the symbol table embedded in archive files. Instead, it reads archive members directly. This means mold does not require a symbol table to exist in an archive.
+</Info>
+
+## Traditional Unix linker behavior (order-sensitive)
+
+Traditional Unix linkers (GNU BFD ld) process input files left-to-right in a single pass, maintaining a running set of defined and undefined symbols. When they reach an archive file, they pull out any member that resolves a currently-undefined symbol—and then move on. Members that were not pulled out get no second chance.
+
+This means **archive files usually must appear after the object files that reference them** on the command line. If you place an archive before the object files that use it, the linker has no undefined symbols yet and extracts nothing from the archive.
+
+```bash
+# Correct order for traditional linkers
+cc main.o helper.o -lfoo
+
+# May silently fail: libfoo.a processed before undefined symbols are known
+cc -lfoo main.o helper.o
+```
+
+The `--start-group` / `--end-group` options exist to work around this by causing the linker to re-scan the archives within the group until no new symbols are pulled out. This works but makes linking slower.
+
+## mold's order-independent approach
+
+mold (like LLVM lld) takes a fundamentally different approach. Instead of forgetting which symbols an archive can provide after processing it, mold **remembers** the full set of symbols available from all archives throughout the entire link. This allows it to "go back" in the input list and extract archive members to satisfy undefined symbols that appear later.
+
+As a result, mold is not sensitive to the order of input files on the command line. The following two commands produce identical output with mold:
+
+```bash
+mold -o out main.o helper.o -lfoo
+mold -o out -lfoo main.o helper.o
+```
+
+<Note>
+`--start-group` and `--end-group` are accepted by mold for compatibility with existing build systems but are silently ignored. They have no effect on linking behavior.
+</Note>
+
+## Concurrent symbol resolution
+
+Internally, mold resolves symbols using a concurrent hashmap. All defined symbols from all input files are inserted into the hashmap in parallel using a parallel for-loop. Once populated, the hashmap is queried to match undefined symbols against definitions—also in parallel.
+
+## Weak symbols
+
+A weak symbol is a definition that can be overridden by a strong definition of the same name. If no strong definition exists at link time, a weak symbol resolves to itself (for defined weak symbols) or to address zero (for undefined weak symbols).
+
+Weak symbols allow libraries to provide default implementations that users can override without modifying the library.
+
+## Common symbols
+
+Common symbols (also called tentative definitions) are a legacy C feature. A variable declared without an initializer in a C source file (e.g., `int x;` at file scope) may be emitted as a common symbol. The linker merges all common symbols of the same name and allocates space for them in the `.bss` section.
+
+<Warning>
+Common symbols have tricky semantics and are rarely needed in modern code. They interact poorly with incremental build tools and can cause surprising behavior when the same symbol name appears in multiple translation units. Prefer explicit definitions with initializers.
+</Warning>
+
+## Summary of resolution rules
+
+<AccordionGroup>
+  <Accordion title="Object files (.o)">
+    Always linked into the output. All their defined symbols are unconditionally added to the symbol table.
+  </Accordion>
+  <Accordion title="Static libraries (.a)">
+    Members are extracted only when needed to resolve undefined symbols. mold remembers which symbols each archive can provide throughout the entire link, so archive position on the command line does not matter.
+  </Accordion>
+  <Accordion title="Weak symbols">
+    A strong definition overrides a weak definition of the same name. If only weak definitions exist, the first one encountered is used. Undefined weak symbols resolve to zero.
+  </Accordion>
+  <Accordion title="Common symbols">
+    Multiple tentative definitions of the same name are merged into a single allocation. A strong definition overrides all common definitions of the same name.
+  </Accordion>
+  <Accordion title="--start-group / --end-group">
+    Accepted for compatibility but silently ignored. mold's order-independent resolution makes them unnecessary.
+  </Accordion>
+</AccordionGroup>

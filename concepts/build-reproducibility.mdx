@@ -1,0 +1,103 @@
+---
+title: Build reproducibility
+description: How mold guarantees bit-for-bit identical output, computes build IDs in parallel, and provides tooling for bug reproduction and benchmark isolation.
+---
+
+mold is designed to produce deterministic, reproducible output. This is a first-class property, not an afterthought.
+
+## Bit-for-bit identical output
+
+If you pass the same object files and the same command-line options to the same version of mold, it is guaranteed to produce **bit-for-bit identical output** every time.
+
+Sources of non-determinism that mold explicitly eliminates:
+
+- **Thread scheduling order**: mold uses parallelism extensively, but the output never depends on which thread finishes first or in what order threads execute.
+- **Hash table iteration order**: internal hash tables may be iterated in different orders on different runs; mold ensures this never affects the output.
+- **Timestamp or host information**: mold does not embed build timestamps, hostnames, or other host-specific metadata unless explicitly instructed.
+
+## No host-specific defaults
+
+GNU linkers have configurable default values—such as default library search paths and default dynamic linker paths—that are hard-coded at GNU ld build time and vary between Linux distributions and toolchain installations.
+
+mold has no such host-specific defaults. Its behavior depends only on its command-line arguments. The same mold binary produces the same output on any machine given the same inputs.
+
+<Note>
+Because the compiler driver (`gcc`, `clang`, `cc`) always passes all necessary search paths and dynamic linker paths to the linker explicitly, the absence of host-specific defaults in mold does not affect normal usage.
+</Note>
+
+## Parallel build-id computation
+
+The `--build-id` option embeds a unique identifier into the output file's `.note.gnu.build-id` section. This is typically used by debuggers and crash-reporting tools to match executables to their debug symbols.
+
+Computing a cryptographic hash over the entire output file serially would be slow for large binaries. mold computes build-id using a **parallel Merkle tree** approach:
+
+1. The output file is split into 1 MiB blocks.
+2. A SHA-256 hash is computed for each block in parallel.
+3. The per-block hashes are concatenated, and a final SHA-256 hash is computed over the result.
+
+This is a [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) of height 2. Modern x86 processors have hardware SHA instructions and can hash at approximately 2 GiB/s. Using 16 cores, a build-id for a 2 GiB executable is computed in 60–70 milliseconds.
+
+### Build-id options
+
+| Option | Description |
+|--------|-------------|
+| `--build-id` | Synonym for `--build-id=sha256` |
+| `--build-id=sha256` | 256-bit SHA-256 hash (also called `fast`) |
+| `--build-id=sha1` | SHA-256 truncated to 160 bits |
+| `--build-id=md5` | SHA-256 truncated to 128 bits |
+| `--build-id=uuid` | Random 128-bit UUID |
+| `--build-id=0x`_hexstring_ | Literal byte string |
+| `--no-build-id` | Disable build-id |
+
+<Info>
+Despite the names `md5` and `sha1`, mold computes all hash-based build-ids using SHA-256 and truncates the result. The cryptographic hash function used is always SHA-256.
+</Info>
+
+## --repro: archiving inputs for bug reports
+
+When you encounter a linker bug, reproducing it requires having the exact same input files and command-line options that triggered the problem. The `--repro` flag automates this:
+
+```bash
+mold --repro -o my_program main.o helper.o -lfoo
+```
+
+mold archives all input files and the command-line options into a tar file at `<output>.tar` (e.g., `my_program.tar`). You can send this tar file to a developer, and they can reproduce the exact link by running:
+
+```bash
+tar xf my_program.tar
+cd my_program
+mold @response_file.txt
+```
+
+You can also set the `MOLD_REPRO` environment variable to a non-empty string to enable the same behavior without modifying your build system's linker flags.
+
+<Tip>
+Always use `--repro` when filing a bug report for mold. It makes it far easier for developers to reproduce and fix the issue.
+</Tip>
+
+## --shuffle-sections: isolating performance from layout effects
+
+Modern CPUs are sensitive to a program's memory layout. A small change in code—like adding a few bytes to a function in the middle of a binary—can shift the alignment of other functions and data, changing cache behavior and branch predictor performance. This makes benchmarking new optimizations difficult: a measured performance improvement might be due to a better memory layout, not better code.
+
+`--shuffle-sections` randomizes the output by shuffling the order of input sections before assigning their offsets in the output file:
+
+```bash
+# Different layout each run
+mold --shuffle-sections -o my_program ...
+
+# Reproducible specific layout (seed = 42)
+mold --shuffle-sections=42 -o my_program ...
+```
+
+By running a benchmark multiple times with different seeds, you can collect a distribution of performance results across random layouts. If your optimization improves performance across many different layouts, you can be more confident the improvement is real.
+
+<AccordionGroup>
+  <Accordion title="--reverse-sections: testing initialization order">
+    `--reverse-sections` reverses the order of input sections before assigning offsets. This is useful for finding bugs that depend on the initialization order of global C++ objects.
+
+    In C++, constructors for globals within a single translation unit run in source order, but there is no guarantee across translation units. By reversing section order, you can test that your program works correctly in both the default and reversed initialization orders.
+  </Accordion>
+  <Accordion title="How reproducibility and parallelism coexist">
+    mold maintains determinism while using parallel for-loops by ensuring that the output of each parallel pass is independent of thread scheduling. For example, when multiple threads write to different parts of the output buffer simultaneously, each thread's region is determined before any threads start, so no thread's output can affect another's placement.
+  </Accordion>
+</AccordionGroup>

@@ -1,80 +1,131 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick start"
+description: "Get mold working with your existing build system in a few commands."
 ---
 
-## Get started in three steps
+There are several ways to tell your build system to use mold. Choose the method that fits your compiler version and build setup.
 
-Get your documentation site running locally and make your first customization.
+## Using `-fuse-ld=mold`
 
-### Step 1: Set up your local environment
+The simplest approach for Clang and GCC 12.1 or later is to pass `-fuse-ld=mold` to the compiler driver. Add it to your build system's linker flags:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+<Tabs>
+  <Tab title="Clang (any version)">
+    ```bash
+    clang -fuse-ld=mold -o output input.o
+    ```
 
-### Step 2: Deploy your changes
+    Or set it via `LDFLAGS`:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    LDFLAGS="-fuse-ld=mold" make
+    ```
+  </Tab>
+  <Tab title="GCC 12.1+">
+    ```bash
+    gcc -fuse-ld=mold -o output input.o
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    Or set it via `LDFLAGS`:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+    ```bash
+    LDFLAGS="-fuse-ld=mold" make
+    ```
+  </Tab>
+</Tabs>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  If `mold` is not installed to a directory on `$PATH`, Clang also accepts an absolute path: `-fuse-ld=/path/to/mold`. GCC does not accept an absolute path for `-fuse-ld`.
 </Note>
+
+## Using `-B` for older GCC
+
+GCC before 12.1.0 does not recognise `mold` as a valid argument for `-fuse-ld`. Use the `-B` option instead. It tells GCC where to search for external commands such as `ld`.
+
+When mold is installed via `sudo cmake --build build --target install`, it places a symlink at `/usr/libexec/mold/ld` that points to the `mold` executable. Pass that directory with `-B`:
+
+```bash
+gcc -B/usr/libexec/mold -o output input.o
+```
+
+If you installed to a custom prefix (for example `/usr` via `-DCMAKE_INSTALL_PREFIX=/usr`), adjust the path accordingly. For the default prefix of `/usr/local`:
+
+```bash
+gcc -B/usr/local/libexec/mold -o output input.o
+```
+
+## Using `mold -run`
+
+When modifying the build system's flags is difficult, use `mold -run` to wrap the build command entirely. mold intercepts all invocations of `ld`, `ld.bfd`, `ld.gold`, and `ld.lld` and redirects them to itself using `LD_PRELOAD`:
+
+```bash
+mold -run make
+```
+
+Pass any additional build arguments after the command name:
+
+```bash
+mold -run make -j$(nproc) all
+```
+
+<Tip>
+  `mold -run` works with any build tool. Use it with `ninja`, `cmake --build`, `cargo build`, or any other command that eventually invokes a linker.
+</Tip>
+
+## Language-specific integration
+
+<AccordionGroup>
+  <Accordion title="Rust / Cargo">
+    Create `.cargo/config.toml` in your project directory:
+
+    ```toml
+    [target.'cfg(target_os = "linux")']
+    linker = "clang"
+    rustflags = ["-C", "link-arg=-fuse-ld=/path/to/mold"]
+    ```
+
+    Replace `/path/to/mold` with the absolute path to the mold executable. `clang` is used as the linker driver because it always accepts `-fuse-ld`. If your GCC is 12.1 or later you can omit the `linker = "clang"` line:
+
+    ```toml
+    [target.'cfg(target_os = "linux")']
+    rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+    ```
+
+    To apply this to all Cargo projects, place the snippet in `~/.cargo/config.toml`.
+  </Accordion>
+  <Accordion title="Nim">
+    Create `config.nims` in your project directory:
+
+    ```nim
+    when findExe("mold").len > 0 and defined(linux):
+      switch("passL", "-fuse-ld=mold")
+    ```
+
+    `mold` must be on the `PATH` environment variable. To apply to all Nim projects, add the snippet to `~/.config/config.nims`.
+  </Accordion>
+  <Accordion title="Conan package manager">
+    Conan can download and configure mold automatically. See the instructions at [conan.io/center/recipes/mold](https://conan.io/center/recipes/mold).
+  </Accordion>
+</AccordionGroup>
+
+## Verifying mold is being used
+
+mold embeds its identification string in the `.comment` section of every output file it produces. Use `readelf` to confirm:
+
+```bash
+readelf -p .comment <executable-file>
+```
+
+Expected output when mold was used:
+
+```text
+String dump of section '.comment':
+  [     0]  GCC: (Ubuntu 10.2.0-5ubuntu1~20.04) 10.2.0
+  [    2b]  mold 9a1679b47d9b22012ec7dfbda97c8983956716f7
+```
+
+If `mold` appears in the `.comment` section, the file was linked by mold.
+
+<Warning>
+  If `mold` is absent from the `.comment` section, the build system is still using the default linker. Double-check that your flags are being passed to the compiler driver and not discarded by an intermediate wrapper.
+</Warning>

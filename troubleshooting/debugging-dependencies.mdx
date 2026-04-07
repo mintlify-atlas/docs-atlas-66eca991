@@ -1,0 +1,166 @@
+---
+title: 'Debugging dependencies'
+description: 'Diagnostic options for tracing symbol dependencies, input file processing, section layout, and reproducing linker bugs with mold.'
+keywords: ['mold', 'linker', 'debugging', 'print-dependencies', 'trace', 'trace-symbol', 'repro', 'map file', 'verbose', 'stats']
+---
+
+mold provides a set of diagnostic flags for understanding what the linker is doing: which files it pulls in, why a symbol is included, how sections are laid out, and how to reproduce a bug.
+
+## --print-dependencies
+
+Prints a line for each resolved symbol showing which file depends on which other file, and for what symbol. This is the most targeted tool for answering "why was this file pulled in?".
+
+```bash
+mold --print-dependencies -o output main.o libfoo.a libbar.a
+```
+
+Example output:
+
+```text
+main.o              -> libfoo.a(foo.o)   to use foo_init
+libfoo.a(foo.o)     -> libbar.a(bar.o)   to use bar_helper
+libbar.a(bar.o)     -> libc.so           to use malloc
+```
+
+Each line reads: _left file_ needs _right file_ in order to resolve _symbol_.
+
+<AccordionGroup>
+  <Accordion title="Why was an object pulled from an archive?">
+    If you want to know why `libfoo.a(foo.o)` ended up in the link, run with `--print-dependencies` and look for lines whose right-hand side is `libfoo.a(foo.o)`. The symbol column shows the specific symbol that caused the pull.
+  </Accordion>
+
+  <Accordion title="Why is a shared library kept despite --as-needed?">
+    With `--as-needed`, shared libraries are only included if at least one symbol they export is actually used. `--print-dependencies` shows which symbol caused a shared library to be retained:
+
+    ```bash
+    mold --as-needed --print-dependencies -o output main.o -lfoo
+    ```
+
+    If `libfoo.so` appears on the right-hand side of any line, that line shows the symbol keeping it in the dependency list.
+  </Accordion>
+</AccordionGroup>
+
+## --trace
+
+Prints the name of each input file as it is processed by the linker. Useful for verifying that all expected inputs are being seen, and for spotting unexpected files.
+
+```bash
+mold --trace -o output main.o libfoo.a -lbar
+```
+
+Example output:
+
+```text
+main.o
+libfoo.a
+libfoo.a(foo.o)
+/usr/lib/x86_64-linux-gnu/libbar.so
+```
+
+## --trace-symbol / -y
+
+Traces all references and definitions for a specific symbol throughout the link. Pass the symbol name as an argument:
+
+```bash
+mold --trace-symbol=malloc -o output main.o -lc
+# or equivalently
+mold -y malloc -o output main.o -lc
+```
+
+The output shows every file that references or defines the symbol, which is useful for diagnosing duplicate symbol errors or unexpected symbol overrides.
+
+<Tip>
+Use `--trace-symbol` together with `--print-dependencies` when a symbol conflict or undefined reference is hard to trace back to a specific input file.
+</Tip>
+
+## --repro
+
+Archives all input files and the command-line options into a `.tar` file alongside the output. This makes it easy to share a self-contained reproducer when filing a linker bug.
+
+```bash
+mold --repro -o mybinary main.o libfoo.a
+# Produces: mybinary.tar
+```
+
+The tar file contains every input object file, archive, and shared library, plus a text file recording the exact command-line invocation. Anyone with the tar file can reproduce the link exactly.
+
+You can also set the `MOLD_REPRO` environment variable as an alternative to the flag:
+
+```bash
+export MOLD_REPRO=1
+make
+```
+
+<Tip>
+Always include the `.tar` file when reporting a bug at [https://github.com/rui314/mold/issues](https://github.com/rui314/mold/issues). It allows maintainers to reproduce the issue without needing access to your codebase.
+</Tip>
+
+## --stats
+
+Prints a summary of input statistics after the link completes: counts of object files, sections, symbols, relocations, and so on.
+
+```bash
+mold --stats -o output main.o libfoo.a
+```
+
+Example output:
+
+```text
+     32  regular_files
+    128  sections
+   4096  symbols
+  12288  relocations
+```
+
+This is useful for understanding the scale of a link and for comparing builds before and after changes.
+
+## --print-map and --Map
+
+Writes a map file describing the final section layout: which input sections were placed where in the output, along with their sizes and addresses.
+
+<CodeGroup>
+
+```bash stdout
+# Write map to standard output
+mold --print-map -o output main.o libfoo.a
+```
+
+```bash file
+# Write map to a specific file
+mold --Map=output.map -o output main.o libfoo.a
+```
+
+</CodeGroup>
+
+The map file is useful for:
+- Understanding the size contribution of each translation unit
+- Verifying that a section ended up at the expected address
+- Investigating unexpected bloat in the output binary
+
+<Steps>
+  <Step title="Run the link with --Map">
+    ```bash
+    mold --Map=link.map -o mybinary main.o libfoo.a
+    ```
+  </Step>
+  <Step title="Search the map for a section or symbol">
+    ```bash
+    grep 'my_function' link.map
+    ```
+  </Step>
+  <Step title="Inspect the address and size">
+    The map file shows the virtual address, size, and originating input file for each output section.
+  </Step>
+</Steps>
+
+## Options quick reference
+
+| Option | Purpose |
+|--------|---------|
+| `--print-dependencies` | Show which file depends on which, per symbol |
+| `--trace` | Print each input file as it is processed |
+| `--trace-symbol=SYM` / `-y SYM` | Trace all references and definitions of a symbol |
+| `--repro` | Archive inputs for bug reproduction |
+| `--stats` | Print input statistics after linking |
+| `--print-map` | Write section layout map to stdout |
+| `--Map=file` | Write section layout map to a file |

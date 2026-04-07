@@ -1,0 +1,853 @@
+---
+title: 'GNU-compatible options'
+description: 'Standard GNU ld flags supported by mold, covering output, libraries, symbols, sections, and more.'
+keywords: ['mold', 'linker', 'GNU ld', 'options', 'flags', 'compatible']
+---
+
+These options are compatible with GNU ld. mold accepts them for drop-in compatibility. For mold-specific options, see [mold-specific options](/reference/mold-specific-options). For `-z` flags, see [-z options](/reference/z-options).
+
+## Informational
+
+### --help
+
+```
+--help
+```
+
+Report usage information to stdout and exit.
+
+### -v / --version
+
+```
+-v
+--version
+```
+
+Report version information to stdout. `--version` exits after printing. `-v` continues linking.
+
+### -V
+
+```
+-V
+```
+
+Report version and target information to stdout.
+
+## Output control
+
+### -o / --output
+
+```
+-o file
+--output=file
+```
+
+Use `file` as the output file name instead of the default `a.out`.
+
+### -r / --relocatable
+
+```
+-r
+--relocatable
+```
+
+Instead of generating an executable or shared object file, combine input object files to generate another object file that can be used as input to a linker.
+
+### --shared / --Bshareable
+
+```
+--shared
+--Bshareable
+```
+
+Create a shared library.
+
+### --pie / --no-pie
+
+```
+--pie
+--pic-executable
+--no-pie
+--no-pic-executable
+```
+
+Create a position-independent executable.
+
+### -N / --omagic
+
+```
+-N
+--omagic
+--no-omagic
+```
+
+Force mold to emit an output file with an old-fashioned memory layout. This makes the first data segment not aligned to a page boundary, and marks text segments as writable.
+
+### --nmagic / --no-nmagic
+
+```
+--nmagic
+--no-nmagic
+```
+
+Do not page-align sections. Similar to `--omagic` but does not make text segments writable.
+
+### --oformat=binary
+
+```
+--oformat=binary
+```
+
+Omit ELF, section, and program headers from the output file, producing a raw binary.
+
+### --static
+
+```
+--static
+```
+
+Do not link against shared libraries.
+
+### -M / --print-map
+
+```
+-M
+--print-map
+```
+
+Write a map file to stdout.
+
+### --Map
+
+```
+--Map=file
+```
+
+Write map file to `file`.
+
+### --image-base
+
+```
+--image-base=addr
+```
+
+Set the base address to `addr`.
+
+## Input file handling
+
+### -l / --library
+
+```
+-l libname
+--library=libname
+```
+
+Search for `lib`*libname*`.so` or `lib`*libname*`.a` from library search paths.
+
+### -L / --library-path
+
+```
+-L dir
+--library-path=dir
+```
+
+Add `dir` to the list of library search paths from which mold searches libraries for the `-l` option.
+
+Unlike GNU linkers, mold has no default search paths. This usually makes no difference because the compiler driver passes all necessary paths to the linker.
+
+### -T / --script
+
+```
+-T file
+--script=file
+```
+
+Read a linker script from `file`.
+
+### --whole-archive / --no-whole-archive
+
+```
+--whole-archive
+--no-whole-archive
+```
+
+When archive files (`.a` files) are given to the linker, only object files needed to resolve undefined symbols are extracted. `--whole-archive` changes this for subsequent archives so that all object files are extracted and linked. `--no-whole-archive` restores the default behavior.
+
+### --start-lib / --end-lib
+
+```
+--start-lib
+--end-lib
+```
+
+Handle object files between `--start-lib` and `--end-lib` as if they were in an archive file — they are linked only when needed to resolve undefined symbols. Useful when you want archive-like semantics without the overhead of running `ar(1)`.
+
+### --push-state / --pop-state
+
+```
+--push-state
+--pop-state
+```
+
+`--push-state` saves the current values of `--as-needed`, `--whole-archive`, `--static`, and `--start-lib`. The saved values can be restored by `--pop-state`. These can nest.
+
+```bash
+# Link libfoo.so only if needed, without changing the global --as-needed state
+-Wl,--push-state,--as-needed,-lfoo,--pop-state
+```
+
+### -C / --directory
+
+```
+-C dir
+--directory dir
+```
+
+Change to `dir` before doing anything. Useful when invoking mold from a different working directory.
+
+### -m
+
+```
+-m target
+```
+
+Choose a target. The target name corresponds to an ELF emulation (e.g., `elf_x86_64`, `aarch64linux`, `elf64lriscv`).
+
+### --sysroot
+
+```
+--sysroot=dir
+```
+
+Set the target system root directory to `dir`.
+
+## Symbol control
+
+### -e / --entry
+
+```
+-e symbol
+--entry=symbol
+```
+
+Use `symbol` as the entry point instead of the default `_start`.
+
+### -u / --undefined
+
+```
+-u symbol
+--undefined=symbol
+```
+
+If `symbol` remains undefined after reading all object files, and a static archive contains an object file defining it, pull out that object file and link it so the output contains a definition of `symbol`.
+
+### --undefined-glob
+
+```
+--undefined-glob=pattern
+```
+
+Synonym for `--undefined`, except it takes a glob pattern instead of a single symbol name.
+
+### --require-defined
+
+```
+--require-defined=symbol
+```
+
+Like `--undefined`, except the symbol must be defined by the end of the link.
+
+### -E / --export-dynamic
+
+```
+-E
+--export-dynamic
+--no-export-dynamic
+```
+
+When creating an executable, cause all global symbols to be put into the dynamic symbol table so they are visible from other ELF modules at runtime.
+
+By default (or with `--no-export-dynamic`), only symbols referenced by DSOs at link-time are exported from an executable.
+
+### --export-dynamic-symbol
+
+```
+--export-dynamic-symbol=symbol
+```
+
+Put symbols matching `symbol` in the dynamic symbol table. `symbol` may be a glob pattern.
+
+### --export-dynamic-symbol-list
+
+```
+--export-dynamic-symbol-list=file
+```
+
+Read a list of dynamic symbols from `file`.
+
+### -y / --trace-symbol
+
+```
+-y symbol
+--trace-symbol=symbol
+```
+
+Trace references to `symbol`.
+
+### --defsym
+
+```
+--defsym=symbol=value
+```
+
+Define `symbol` as an alias for `value`. `value` is either an integer (decimal or hexadecimal with `0x` prefix) or a symbol name. If an integer is given, `symbol` is defined as an absolute symbol with that value.
+
+### --wrap
+
+```
+--wrap=symbol
+```
+
+Make `symbol` resolve to `__wrap_`*symbol*. The original symbol can be accessed as `__real_`*symbol*. This is typically used for wrapping an existing function.
+
+### --version-script
+
+```
+--version-script=file
+```
+
+Read a version script from `file`. If `file` does not exist in the current directory, it is searched from library search paths for GNU ld compatibility.
+
+### --dynamic-list
+
+```
+--dynamic-list=file
+```
+
+Read a list of dynamic symbols from `file`. Same as `--export-dynamic-symbol-list`, but also implies `--Bsymbolic`. If `file` does not exist in the current directory, it is searched from library search paths.
+
+### --retain-symbols-file
+
+```
+--retain-symbols-file=file
+```
+
+Keep only symbols listed in `file`, which is a text file with one symbol name per line. All local symbols and global symbols not in the list are discarded.
+
+<Note>
+This removes symbols only from `.symtab` and does not affect `.dynsym`, which is used for dynamic linking.
+</Note>
+
+### --default-symver
+
+```
+--default-symver
+```
+
+Use the soname as a symbol version and append it to all symbols.
+
+### --exclude-libs
+
+```
+--exclude-libs=libraries...
+```
+
+Mark all symbols in the given libraries as hidden.
+
+### -s / --strip-all
+
+```
+-s
+--strip-all
+```
+
+Omit the `.symtab` section from the output file.
+
+### -S / --strip-debug
+
+```
+-S
+--strip-debug
+```
+
+Omit `.debug_*` sections from the output file.
+
+### -X / --discard-locals
+
+```
+-X
+--discard-locals
+```
+
+Discard temporary local symbols to reduce the size of the symbol table and string table. Temporary local symbols are local symbols starting with `.L`. Compilers typically generate them for unnamed program elements such as string literals or floating-point literals.
+
+## Dynamic linking
+
+### -I / --dynamic-linker
+
+```
+-I file
+--dynamic-linker=file
+--no-dynamic-linker
+```
+
+Set the dynamic linker path to `file`. If no `-I` is given, or if `--no-dynamic-linker` is given, no dynamic linker path is set.
+
+This differs from GNU linkers, which set a default dynamic linker path. In practice, this makes no difference because the compiler driver always passes `-I` to the linker.
+
+### -h / --soname
+
+```
+-h libname
+--soname=libname
+```
+
+Set the `DT_SONAME` dynamic section field to `libname`. Used when creating a shared library.
+
+```bash
+mold --soname=libfoo.so.1 -o libfoo.so.1 foo.o
+```
+
+### -F / --filter
+
+```
+-F libname
+--filter=libname
+```
+
+Set the `DT_FILTER` dynamic section field to `libname`.
+
+### -f / --auxiliary
+
+```
+-f shlib
+--auxiliary=shlib
+```
+
+Set the `DT_AUXILIARY` dynamic section field to `shlib`.
+
+### --Bdynamic
+
+```
+--Bdynamic
+```
+
+Link against shared libraries. This is the default.
+
+### --Bstatic
+
+```
+--Bstatic
+```
+
+Do not link against shared libraries. Equivalent to `--static`.
+
+### --Bsymbolic
+
+```
+--Bsymbolic
+```
+
+When creating a shared library, make global symbols export-only (do not import the same symbol). As a result, references within a shared library are always resolved locally, preventing symbol override at runtime.
+
+See [Dynamic linking](/concepts/dynamic-linking) for more context on import/export semantics.
+
+### --Bsymbolic-functions
+
+```
+--Bsymbolic-functions
+```
+
+Same effect as `--Bsymbolic`, but only for function symbols. Data symbols remain both imported and exported.
+
+### --Bsymbolic-non-weak
+
+```
+--Bsymbolic-non-weak
+```
+
+Same effect as `--Bsymbolic`, but only for non-weak symbols. Weak symbols remain both imported and exported.
+
+### --Bsymbolic-non-weak-functions
+
+```
+--Bsymbolic-non-weak-functions
+```
+
+Same effect as `--Bsymbolic`, but only for non-weak function symbols. Data symbols and weak function symbols remain both imported and exported.
+
+### --Bno-symbolic
+
+```
+--Bno-symbolic
+```
+
+Cancel `--Bsymbolic`, `--Bsymbolic-functions`, `--Bsymbolic-non-weak`, and `--Bsymbolic-non-weak-functions`.
+
+### --as-needed / --no-as-needed
+
+```
+--as-needed
+--no-as-needed
+```
+
+By default, shared libraries given to the linker are unconditionally added to the list of required libraries (`DT_NEEDED`) in the output file. With `--as-needed`, a shared library is added only when at least one symbol from it is actually used.
+
+`--no-as-needed` restores the default behavior for subsequent files.
+
+### --enable-new-dtags / --disable-new-dtags
+
+```
+--enable-new-dtags
+--disable-new-dtags
+```
+
+By default, mold emits `DT_RUNPATH` for `--rpath`. Pass `--disable-new-dtags` to emit `DT_RPATH` instead.
+
+### --rpath
+
+```
+--rpath=dir
+```
+
+Add `dir` to runtime search paths.
+
+### --allow-shlib-undefined / --no-allow-shlib-undefined
+
+```
+--allow-shlib-undefined
+--no-allow-shlib-undefined
+```
+
+By default, mold ignores undefined symbols in shared libraries (`--allow-shlib-undefined`). Pass `--no-allow-shlib-undefined` to verify at link time that all undefined symbols in shared libraries can be resolved, converting potential runtime errors into link-time errors.
+
+<Note>
+You must pass all shared libraries, including indirect dependencies, as `-l` arguments for the verification to be effective.
+</Note>
+
+### -P / --depaudit
+
+```
+-P auditlib
+--depaudit auditlib
+```
+
+Set the `DT_DEPAUDIT` dynamic section field to `auditlib`.
+
+### --apply-dynamic-relocs / --no-apply-dynamic-relocs
+
+```
+--apply-dynamic-relocs
+--no-apply-dynamic-relocs
+```
+
+Apply link-time values for dynamic relocations. This is the default (`--apply-dynamic-relocs`). Pass `--no-apply-dynamic-relocs` to skip applying link-time values.
+
+### --dynamic-list-data
+
+```
+--dynamic-list-data
+```
+
+Add data symbols to the dynamic symbol table.
+
+### --rosegment / --no-rosegment
+
+```
+--rosegment
+--no-rosegment
+```
+
+Put read-only non-executable sections in their own segment. This is the default (`--rosegment`). Pass `--no-rosegment` to place read-only non-executable sections in an executable segment instead.
+
+### --pack-dyn-relocs
+
+```
+--pack-dyn-relocs=[relr|none]
+```
+
+If `relr` is specified, all `R_*_RELATIVE` relocations are stored in a `.relr.dyn` section using a space-efficient encoding, which can reduce output file size significantly for position-independent executables.
+
+<Note>
+The runtime loader must support `.relr.dyn` to run binaries linked with `--pack-dyn-relocs=relr`. As of 2022, only ChromeOS, Android, and Fuchsia support it.
+</Note>
+
+## Section control
+
+### --gc-sections / --no-gc-sections
+
+```
+--gc-sections
+--no-gc-sections
+```
+
+Remove unreferenced sections from the output.
+
+### --print-gc-sections / --no-print-gc-sections
+
+```
+--print-gc-sections[=file]
+--no-print-gc-sections
+```
+
+Print removed unreferenced sections. If a filename is given, write the list to that file instead of stdout.
+
+### --icf
+
+```
+--icf=[safe|all|none]
+--no-icf
+```
+
+Identical Code Folding (ICF) identifies and merges identical functions to reduce output size.
+
+- `--icf=all` — merge all identical functions. **Not safe**: merging functions gives them the same address, which violates the C/C++ guarantee that pointers to different functions are never equal.
+- `--icf=safe` — merge functions only when safe (i.e., when no address of the function is taken). Requires the `.llvm_addrsig` section, which Clang produces by default. Not usable with GCC.
+- `--icf=none` / `--no-icf` — disable ICF.
+
+### --print-icf-sections / --no-print-icf-sections
+
+```
+--print-icf-sections[=file]
+--no-print-icf-sections
+```
+
+Print folded identical sections. Optionally write to `file` instead of stdout.
+
+### --ignore-data-address-equality
+
+```
+--ignore-data-address-equality
+```
+
+Allow ICF to merge not only functions but also data. Use in combination with `--icf=all`.
+
+### --unique
+
+```
+--unique=pattern
+```
+
+Do not merge input sections that match the given glob pattern.
+
+### --section-start
+
+```
+--section-start=section=address
+```
+
+Set the address of a section. `address` is a hexadecimal number, optionally prefixed with `0x`.
+
+### --Tbss / --Tdata / --Ttext
+
+```
+--Tbss=address
+--Tdata=address
+--Ttext=address
+```
+
+Aliases for `--section-start=.bss=address`, `--section-start=.data=address`, and `--section-start=.text=address` respectively.
+
+### --relax / --no-relax
+
+```
+--relax
+--no-relax
+```
+
+Rewrite machine instructions with more efficient ones for some relocations. Enabled by default.
+
+## Misc
+
+### --demangle / --no-demangle
+
+```
+--demangle
+--no-demangle
+```
+
+Demangle C++ and Rust symbols in log messages. Demangling is on by default.
+
+### --trace
+
+```
+--trace
+```
+
+Print the name of each input file.
+
+### --execute-only
+
+```
+--execute-only
+```
+
+Mark text segments as execute-only by setting only the `X` bit (not `RX`). This prevents machine code from being read as data, making it harder for attackers to locate code gadgets.
+
+<Note>
+On systems that do not support execute-only pages, the executable will still function normally but the text segment remains readable.
+</Note>
+
+### --noinhibit-exec
+
+```
+--noinhibit-exec
+```
+
+Create an output file even if errors occur.
+
+### --spare-dynamic-tags
+
+```
+--spare-dynamic-tags=number
+```
+
+Append the given number of `DT_NULL` entries to the end of the `.dynamic` section, so that post-link processing tools can add new dynamic tags by overwriting the null entries.
+
+### --hash-style
+
+```
+--hash-style=[sysv|gnu|both|none]
+```
+
+Set the hash style for the dynamic symbol table.
+
+### --init / --fini
+
+```
+--init=symbol
+--fini=symbol
+```
+
+Call `symbol` at load-time (`--init`) or unload-time (`--fini`).
+
+### --gdb-index
+
+```
+--gdb-index
+```
+
+Create a `.gdb_index` section for faster GDB startup. Requires `-ggnu-pubnames` when compiling.
+
+## Symbol resolution
+
+### --no-undefined
+
+```
+--no-undefined
+```
+
+Report undefined symbols, even when `--shared` is in effect.
+
+### --allow-multiple-definition
+
+```
+--allow-multiple-definition
+```
+
+Normally, the linker reports an error for multiple definitions of a symbol. This option suppresses the error and uses the first definition.
+
+### --warn-common / --no-warn-common
+
+```
+--warn-common
+--no-warn-common
+```
+
+Warn about common symbols.
+
+### --warn-once
+
+```
+--warn-once
+```
+
+Warn only once for each undefined symbol, rather than once per relocation referencing it.
+
+### --warn-textrel
+
+```
+--warn-textrel
+```
+
+Warn if the output file needs text relocations.
+
+### --warn-shared-textrel
+
+```
+--warn-shared-textrel
+```
+
+Warn if a shared library output (`.so`) needs text relocations.
+
+### --warn-unresolved-symbols / --error-unresolved-symbols
+
+```
+--warn-unresolved-symbols
+--error-unresolved-symbols
+```
+
+By default, unresolved symbols are reported as errors. `--warn-unresolved-symbols` converts them to warnings. `--error-unresolved-symbols` restores the default.
+
+### --unresolved-symbols
+
+```
+--unresolved-symbols=[report-all|ignore-all|ignore-in-object-files|ignore-in-shared-libs]
+```
+
+Control how unresolved symbols are handled.
+
+### --undefined-version / --no-undefined-version
+
+```
+--undefined-version
+--no-undefined-version
+```
+
+By default, mold warns when a version script or `--export-dynamic-symbol` refers to a symbol that is not defined. `--undefined-version` silences that warning. `--no-undefined-version` restores the default.
+
+### --fatal-warnings / --no-fatal-warnings
+
+```
+--fatal-warnings
+--no-fatal-warnings
+```
+
+Treat warnings as errors, or do not.
+
+## Build ID and metadata
+
+### --build-id
+
+```
+--build-id=[md5|sha1|sha256|fast|uuid|0xhexstring|none]
+--build-id
+--no-build-id
+```
+
+Create a `.note.gnu.build-id` section containing a byte string to uniquely identify the output file.
+
+- `sha256` — compute a 256-bit cryptographic hash (default when `--build-id` is specified without a value; `fast` is a synonym).
+- `md5` — 128-bit truncated hash.
+- `sha1` — 160-bit truncated hash.
+- `uuid` — random 128-bit UUID.
+- `0x`*hexstring* — literal hex value.
+- `none` — disable build ID (same as `--no-build-id`).
+
+### --package-metadata
+
+```
+--package-metadata=percent-encoded-string
+```
+
+Embed a specified string into the `.note.package` section. Intended for build scripts generating binary packages (`.rpm`, `.deb`) to include package metadata in each executable.
+
+The argument is treated as percent-encoded and decoded before insertion. Use `%25` to represent a literal `%`, since commas in `-Wl,` are replaced with spaces before the linker sees them.
+
+### --dependency-file
+
+```
+--dependency-file=file
+```
+
+Write a dependency file to `file` in `make(1)` format. Analogous to the compiler's `-MM -MF` options.

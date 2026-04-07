@@ -1,0 +1,284 @@
+---
+title: 'CMake build options'
+description: 'All CMake options for building mold from source, including compiler selection, sanitizers, and third-party library configuration.'
+keywords: ['mold', 'cmake', 'build options', 'compile', 'from source', 'CMakeLists']
+---
+
+mold uses CMake as its build system. Options are passed with the `-D` flag in the form `-DVARIABLE=value`. Boolean options accept `ON`/`1` for true and `OFF`/`0` for false.
+
+<Info>
+mold intentionally does not provide options to enable or disable individual linker features. This is a deliberate policy to guarantee build reproducibility: all builds of the same mold version have the exact same feature set and behave identically.
+</Info>
+
+To view all currently configured values in an existing build directory, run:
+
+```bash
+cmake -N -L .
+```
+
+## Quick start
+
+```bash
+git clone --branch stable https://github.com/rui314/mold.git
+cd mold
+./install-build-deps.sh
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=c++ -B build
+cmake --build build -j$(nproc)
+sudo cmake --install build
+```
+
+## Compiler options
+
+### `CMAKE_C_COMPILER`
+
+The C compiler to use.
+
+| Property | Value |
+|----------|-------|
+| Default | `cc` |
+| Example | `gcc-12`, `clang-16` |
+
+```bash
+cmake -DCMAKE_C_COMPILER=clang-16 -B build
+```
+
+### `CMAKE_CXX_COMPILER`
+
+The C++ compiler to use. mold is written in C++20 and requires a sufficiently recent compiler.
+
+| Property | Value |
+|----------|-------|
+| Default | `c++` |
+| Recommended | GCC 10.2+ or Clang 16.0.0+ |
+
+```bash
+cmake -DCMAKE_CXX_COMPILER=g++-12 -B build
+cmake -DCMAKE_CXX_COMPILER=clang++-16 -B build
+```
+
+<Tip>
+The required C++ standard library versions are libstdc++ 10 or libc++ 7 (or later). If `c++` does not refer to a recent enough compiler on your system, pass an explicit versioned name such as `g++-12` or `clang++-16`.
+</Tip>
+
+## Install options
+
+### `CMAKE_INSTALL_PREFIX`
+
+The root directory under which mold is installed.
+
+| Property | Value |
+|----------|-------|
+| Default | `/usr/local` |
+
+```bash
+cmake -DCMAKE_INSTALL_PREFIX=/usr -B build
+cmake --install build
+```
+
+You can also override the prefix at install time without reconfiguring:
+
+```bash
+cmake --install build --prefix /opt/mold
+```
+
+## Build type
+
+### `CMAKE_BUILD_TYPE`
+
+Controls compiler optimization and debug information.
+
+| Value | Description |
+|-------|-------------|
+| `Release` | Full optimization, no debug info. Recommended for production use. |
+| `Debug` | No optimization, full debug info. Enables `_GLIBCXX_ASSERTIONS`. |
+| `RelWithDebInfo` | Optimization with debug info. |
+| `MinSizeRel` | Optimize for binary size. |
+
+| Property | Value |
+|----------|-------|
+| Default | `Release` |
+
+```bash
+cmake -DCMAKE_BUILD_TYPE=Debug -B build
+```
+
+## mold-specific options
+
+### `MOLD_USE_MOLD`
+
+Use mold itself as the linker when building mold. Enables `--gdb-index` for debug builds and `--gc-sections --icf=safe` for release builds.
+
+| Property | Value |
+|----------|-------|
+| Default | `OFF` |
+
+```bash
+cmake -DMOLD_USE_MOLD=ON -B build
+```
+
+### `MOLD_LTO`
+
+Enable link-time optimization (LTO) for the mold binary. Produces a smaller, potentially faster mold executable but significantly increases link time during the build.
+
+| Property | Value |
+|----------|-------|
+| Default | `OFF` |
+
+```bash
+cmake -DMOLD_LTO=ON -B build
+```
+
+### `MOLD_MOSTLY_STATIC`
+
+Statically link libstdc++ (and some other libraries) into the mold binary. This produces a portable binary that runs on a variety of Linux distributions without requiring matching shared library versions.
+
+| Property | Value |
+|----------|-------|
+| Default | `OFF` |
+
+```bash
+cmake -DMOLD_MOSTLY_STATIC=ON -B build
+```
+
+<Note>
+This option is primarily intended for the `./dist.sh` distribution packaging script. End users building for their own system generally do not need it.
+</Note>
+
+### `MOLD_TARGETS`
+
+A semicolon-separated list of target CPU architectures to include support for. By default, all 20 supported targets are built.
+
+| Property | Value |
+|----------|-------|
+| Default | `X86_64;I386;ARM64LE;ARM64BE;ARM32LE;ARM32BE;RV32LE;RV32BE;RV64LE;RV64BE;PPC32;PPC64V1;PPC64V2;S390X;SPARC64;M68K;SH4LE;SH4BE;LOONGARCH32;LOONGARCH64` |
+
+```bash
+# Build only for x86-64 and AArch64 little-endian (faster iterative builds)
+cmake -DMOLD_TARGETS='X86_64;ARM64LE' -B build
+```
+
+<Warning>
+Limiting `MOLD_TARGETS` is **strongly discouraged** for distributed binaries or packages. Use it only for personal iterative development where you build mold frequently and only need specific targets. Always build with all targets enabled for any binary you share with others.
+</Warning>
+
+## Sanitizers
+
+These options are for mold developers. They add runtime instrumentation to detect bugs, and are mutually exclusive with each other and with `MOLD_USE_MIMALLOC`.
+
+### `MOLD_USE_ASAN`
+
+Build with AddressSanitizer and UndefinedBehaviorSanitizer. Detects memory errors such as out-of-bounds accesses and use-after-free.
+
+| Property | Value |
+|----------|-------|
+| Default | `OFF` |
+
+```bash
+cmake -DCMAKE_BUILD_TYPE=Debug -DMOLD_USE_ASAN=ON -B build
+```
+
+### `MOLD_USE_TSAN`
+
+Build with ThreadSanitizer. Detects data races and other threading errors.
+
+| Property | Value |
+|----------|-------|
+| Default | `OFF` |
+
+```bash
+cmake -DCMAKE_BUILD_TYPE=Debug -DMOLD_USE_TSAN=ON -B build
+```
+
+### `MOLD_USE_MSAN`
+
+Build with MemorySanitizer. Detects reads from uninitialized memory. Requires an instrumented C++ standard library (typically built with Clang and `-fsanitize=memory`).
+
+| Property | Value |
+|----------|-------|
+| Default | `OFF` |
+
+```bash
+cmake -DCMAKE_BUILD_TYPE=Debug -DMOLD_USE_MSAN=ON \
+  -DMOLD_STDLIB_PREFIX=/path/to/instrumented/stdlib -B build
+```
+
+## Third-party library options
+
+### `MOLD_USE_MIMALLOC`
+
+Use [mimalloc](https://github.com/microsoft/mimalloc) as the memory allocator. mimalloc is optimized for multi-threaded workloads and significantly improves mold's allocation performance.
+
+| Property | Value |
+|----------|-------|
+| Default | `ON` on 64-bit Linux/non-Apple/non-Android/non-OpenBSD systems; `OFF` otherwise |
+
+```bash
+# Disable mimalloc and fall back to the system libc malloc
+cmake -DMOLD_USE_MIMALLOC=OFF -B build
+```
+
+<Note>
+mimalloc is disabled automatically on 32-bit targets, macOS, Android, and OpenBSD because it has shown stability issues on those platforms. It is also disabled when `MOLD_USE_ASAN` or `MOLD_USE_TSAN` are active.
+</Note>
+
+### `MOLD_USE_SYSTEM_MIMALLOC`
+
+Link against the system-installed `libmimalloc.so` instead of the bundled static copy. Only meaningful when `MOLD_USE_MIMALLOC` is `ON`.
+
+| Property | Value |
+|----------|-------|
+| Default | `OFF` (use bundled static mimalloc) |
+
+```bash
+cmake -DMOLD_USE_MIMALLOC=ON -DMOLD_USE_SYSTEM_MIMALLOC=ON -B build
+```
+
+### `MOLD_USE_SYSTEM_TBB`
+
+Link against the system-installed OneTBB (`libtbb2.so`) instead of the bundled static copy. TBB is mold's threading library and is always required.
+
+| Property | Value |
+|----------|-------|
+| Default | `OFF` (use bundled static TBB) |
+
+```bash
+cmake -DMOLD_USE_SYSTEM_TBB=ON -B build
+```
+
+## Common example invocations
+
+<CodeGroup>
+
+```bash Basic release build
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_CXX_COMPILER=c++ \
+      -B build
+cmake --build build -j$(nproc)
+sudo cmake --install build
+```
+
+```bash Custom install prefix and compiler
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=/usr \
+      -DCMAKE_CXX_COMPILER=g++-12 \
+      -B build
+cmake --build build -j$(nproc)
+sudo cmake --install build
+```
+
+```bash Debug build with AddressSanitizer
+cmake -DCMAKE_BUILD_TYPE=Debug \
+      -DCMAKE_CXX_COMPILER=clang++-16 \
+      -DMOLD_USE_ASAN=ON \
+      -B build
+cmake --build build -j$(nproc)
+```
+
+```bash Build only for two targets (development only)
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DMOLD_TARGETS='X86_64;ARM64LE' \
+      -B build
+cmake --build build -j$(nproc)
+```
+
+</CodeGroup>

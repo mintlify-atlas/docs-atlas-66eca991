@@ -1,0 +1,290 @@
+---
+title: '-z options'
+description: 'Security, runtime behavior, and linker flags passed via -z, including relro, execstack, now, CET, and segment layout controls.'
+keywords: ['mold', 'linker', '-z', 'relro', 'execstack', 'now', 'CET', 'ibt', 'shstk', 'rewrite-endbr']
+---
+
+`-z` options control security features, runtime behavior, and output file structure. They are passed to mold as `-z flag` or equivalently `-zflag`.
+
+For mold-specific options, see [mold-specific options](/reference/mold-specific-options). For GNU-compatible options, see [GNU-compatible options](/reference/gnu-compatible-options).
+
+## Control flow integrity
+
+### -z cet-report
+
+```
+-z cet-report=[warning|error|none]
+```
+
+Intel Control-flow Enforcement Technology (CET) is an x86 feature available since Tiger Lake (2020) that protects programs from control-hijacking attacks. Enable it in the compiler with `-fcf-protection`.
+
+`-z cet-report` verifies that all object files were compiled with the correct `-fcf-protection` flag by checking for `GNU_PROPERTY_X86_FEATURE_1_IBT` and `GNU_PROPERTY_X86_FEATURE_1_SHSTK` bits in the `.note.gnu.property` section.
+
+- `warning` — print a warning for non-compliant object files.
+- `error` — print an error for non-compliant object files.
+- `none` — do not check (the default).
+
+### -z ibt
+
+```
+-z ibt
+```
+
+Turn on the `GNU_PROPERTY_X86_FEATURE_1_IBT` bit in the `.note.gnu.property` section to indicate that the output uses an IBT-enabled PLT. This option implies `-z ibtplt`.
+
+### -z ibtplt
+
+```
+-z ibtplt
+```
+
+Generate an Intel Branch Tracking (IBT)-enabled PLT. This is the default on x86-64.
+
+### -z shstk
+
+```
+-z shstk
+```
+
+Enforce shadow stack by setting the `GNU_PROPERTY_X86_FEATURE_1_SHSTK` bit in the `.note.gnu.property` output section. Shadow stack is part of Intel CET, available since Tiger Lake (2020).
+
+### -z rewrite-endbr / -z norewrite-endbr
+
+```
+-z rewrite-endbr
+-z norewrite-endbr
+```
+
+<Note>
+This option is currently available only on x86-64.
+</Note>
+
+Some CPU instruction sets protect control flow integrity by requiring indirect branch targets to begin with a landing pad instruction (`ENDBR` on x86). By default, compilers emit a landing pad at the beginning of every global function—even functions whose addresses are never taken—because they cannot know at compile time whether the address will be taken in another translation unit.
+
+When `-z rewrite-endbr` is given, mold performs a whole-program analysis to identify functions whose addresses are actually taken and rewrites the landing pads of non-address-taken functions with no-ops. This reduces the attack surface against control-flow hijacking without changing program semantics.
+
+`-z norewrite-endbr` disables this optimization (the default).
+
+## Dynamic linking behavior
+
+### -z now / -z lazy
+
+```
+-z now
+-z lazy
+```
+
+By default, functions that refer to other ELF modules are resolved by the dynamic linker when they are called for the first time (`-z lazy`). `-z now` marks the output so that all dynamic symbols are resolved when the file is loaded to memory, at the cost of a longer startup time.
+
+`-z lazy` restores the default lazy resolution behavior.
+
+### -z origin
+
+```
+-z origin
+```
+
+Mark the object as requiring immediate `$ORIGIN` processing at runtime.
+
+### -z nodefaultlib
+
+```
+-z nodefaultlib
+```
+
+Make the dynamic loader ignore default search paths.
+
+### -z nodelete
+
+```
+-z nodelete
+```
+
+Mark the DSO as non-deletable at runtime.
+
+### -z nodlopen
+
+```
+-z nodlopen
+```
+
+Mark the DSO as not available to `dlopen(3)`. This allows the linker to optimize thread-local variable accesses by rewriting instructions for some targets.
+
+### -z nodump
+
+```
+-z nodump
+```
+
+Mark the DSO as not available to `dldump(3)`.
+
+### -z nocopyreloc
+
+```
+-z nocopyreloc
+```
+
+Do not create copy relocations.
+
+### -z initfirst
+
+```
+-z initfirst
+```
+
+Mark the DSO to be initialized first at runtime.
+
+### -z interpose
+
+```
+-z interpose
+```
+
+Mark the object to interpose all DSOs except the executable.
+
+## Stack
+
+### -z execstack / -z noexecstack
+
+```
+-z execstack
+-z noexecstack
+```
+
+By default, the stack area is not executable for security reasons. `-z execstack` makes it executable. `-z noexecstack` restores the default non-executable behavior.
+
+### -z execstack-if-needed
+
+```
+-z execstack-if-needed
+```
+
+Make the stack area executable only if an input file explicitly requests it (i.e., contains a `PT_GNU_STACK` segment with the executable bit set). Otherwise the stack remains non-executable.
+
+### -z stack-size=value
+
+```
+-z stack-size=value
+```
+
+Set the size of the stack segment.
+
+### -z pack-relative-relocs / -z nopack-relative-relocs
+
+```
+-z pack-relative-relocs
+-z nopack-relative-relocs
+```
+
+Alias for `--pack-dyn-relocs=relr` / `--pack-dyn-relocs=none`. Packs `R_*_RELATIVE` relocations into a space-efficient `.relr.dyn` section.
+
+## Read-only protection
+
+### -z relro / -z norelro
+
+```
+-z relro
+-z norelro
+```
+
+Some sections such as `.dynamic` need to be writable only while a module is being loaded. Once the dynamic linker finishes, they will not be mutated again. As a security measure, it is preferable to make such sections read-only during program execution.
+
+`-z relro` places such sections into a special `relro` segment. The dynamic linker makes the relro segment read-only after completing its work.
+
+By default, mold generates a relro segment. `-z norelro` disables the feature.
+
+### -z rodynamic
+
+```
+-z rodynamic
+```
+
+Make the `.dynamic` section read-only.
+
+## Section header
+
+### -z sectionheader / -z nosectionheader
+
+```
+-z sectionheader
+-z nosectionheader
+```
+
+`-z nosectionheader` tells the linker to omit the section header from the output file. By default, the section header is included (`-z sectionheader`).
+
+## Segment layout
+
+### -z separate-loadable-segments / -z separate-code / -z noseparate-code
+
+```
+-z separate-loadable-segments
+-z separate-code
+-z noseparate-code
+```
+
+When one memory page contains multiple segments, the page protection bits are set to satisfy the needed attributes (writable or executable) for all segments on that page. This typically occurs at a boundary between two segments with different attributes.
+
+- `separate-loadable-segments` — add padding between all segments with different attributes so they never share a page. Maximum isolation.
+- `separate-code` — add padding only between executable and non-executable segments. This is the default.
+- `noseparate-code` — do not add any padding between segments. Minimum output size.
+
+### -z max-page-size
+
+```
+-z max-page-size=number
+```
+
+Some CPU ISAs support multiple memory page sizes. This option specifies the maximum page size that an output binary can run on. Binaries built for a larger page size can run on systems with smaller page sizes, but not vice versa.
+
+Default values:
+- **i386, x86-64, RISC-V**: 4 KiB
+- **ARM64**: 64 KiB
+
+## Text relocations
+
+### -z text / -z notext / -z textoff
+
+```
+-z text
+-z notext
+-z textoff
+```
+
+By default, mold reports an error if dynamic relocations are created in read-only sections. `-z notext` or `-z textoff` allow such dynamic relocations without an error. `-z text` restores the default error-reporting behavior.
+
+## Symbol visibility
+
+### -z defs / -z nodefs
+
+```
+-z defs
+-z nodefs
+```
+
+Report undefined symbols, even when `--shared` is in effect. Equivalent to `--no-undefined`.
+
+`-z nodefs` disables this check.
+
+### -z start_stop_visibility
+
+```
+-z start_stop_visibility=[hidden|protected]
+```
+
+If a section name is valid as a C identifier (matching `/^[_a-zA-Z][_a-zA-Z0-9]*$/`), mold creates `__start_SECNAME` and `__stop_SECNAME` symbols marking the beginning and end of the section.
+
+- `hidden` — the markers are hidden from other ELF modules. This is the default.
+- `protected` — the markers are visible from other ELF modules.
+
+## Text section prefixes
+
+### -z keep-text-section-prefix / -z nokeep-text-section-prefix
+
+```
+-z keep-text-section-prefix
+-z nokeep-text-section-prefix
+```
+
+Keep `.text.hot`, `.text.unknown`, `.text.unlikely`, `.text.startup`, and `.text.exit` as separate sections in the final binary instead of merging them into `.text`.
+
+`-z nokeep-text-section-prefix` merges these sections into `.text` (the default).

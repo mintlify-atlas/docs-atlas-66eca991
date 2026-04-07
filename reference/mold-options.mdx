@@ -1,0 +1,143 @@
+---
+title: 'mold options overview'
+description: 'Complete reference for mold linker command-line options, organized by category.'
+keywords: ['mold', 'linker', 'options', 'flags', 'command-line']
+---
+
+## Synopsis
+
+```bash
+mold [option...] file...
+```
+
+`mold` is a faster drop-in replacement for the default GNU ld(1). It is designed to be compatible with GNU linkers for linking user-land programs.
+
+## Option notation
+
+Multi-letter long options may be preceded by either a single dash or double dashes, **except** for options starting with the letter `o`. For historical reasons, long options beginning with `o` must use double dashes.
+
+For example:
+
+- `--as-needed` can also be written as `-as-needed`
+- `--omagic` **must not** be written as `-omagic` — `-omagic` is interpreted as `-o magic` (set output file to `magic`)
+
+## Drop-in replacement compatibility
+
+`mold` is designed to be a drop-in replacement for GNU ld for linking user-land programs. If your program cannot be built due to a missing command-line option, file a bug at [github.com/rui314/mold/issues](https://github.com/rui314/mold/issues).
+
+`mold` supports a limited set of linker script features sufficient to read `/usr/lib/x86_64-linux-gnu/libc.so` on Linux. Beyond that, no additional linker script support is planned.
+
+## Response files
+
+mold supports **response files** (`@file` syntax). If a command-line argument starts with `@`, mold reads the specified file and treats its contents as additional command-line arguments:
+
+```bash
+mold @options.txt -o output main.o
+```
+
+Response files are useful for passing large numbers of arguments that would exceed the kernel's command-line length limit. Response files can be nested (up to 10 levels deep).
+
+## Archive symbol resolution
+
+Unlike traditional Unix linkers, `mold` (like LLVM lld) remembers which symbols can be resolved from archive files rather than forgetting them after processing each archive. This means `mold` is not sensitive to input file order. `--start-group` and `--end-group` are accepted for compatibility but silently ignored.
+
+## Build reproducibility
+
+`mold`'s output is deterministic. Given the same object files and command-line options, the same version of `mold` always produces bit-for-bit identical output. `mold` has no host-specific default settings and depends only on its command-line arguments.
+
+## Option categories
+
+<CardGroup cols={2}>
+  <Card title="mold-specific options" icon="bolt" href="/reference/mold-specific-options">
+    Options unique to mold not found in GNU ld, including `--fork`, `--run`, `--repro`, `--shuffle-sections`, and more.
+  </Card>
+  <Card title="GNU-compatible options" icon="link" href="/reference/gnu-compatible-options">
+    Standard GNU ld flags supported by mold, including `-E`, `-L`, `-l`, `-o`, `--gc-sections`, `--icf`, `--build-id`, and more.
+  </Card>
+  <Card title="-z options" icon="shield" href="/reference/z-options">
+    Security and runtime behavior flags passed via `-z`, including `-z now`, `-z relro`, `-z execstack`, `-z cet-report`, and more.
+  </Card>
+</CardGroup>
+
+## All options at a glance
+
+### mold-specific options
+
+| Option | Description |
+|--------|-------------|
+| `--chroot=dir` | Set `dir` as the root directory |
+| `--color-diagnostics=[auto\|always\|never]` | Control color in diagnostic messages |
+| `--detach` / `--no-detach` | Control background creation of debug info file |
+| `--fork` / `--no-fork` | Spawn a child process to hide exit latency |
+| `--perf` | Print performance statistics |
+| `--print-dependencies` | Print input file dependency information |
+| `--relocatable-merge-sections` | Merge sections by name when using `-r` |
+| `--repro` | Archive inputs for reproducing the link |
+| `--reverse-sections` | Reverse input section order in output |
+| `--run command arg...` | Run command with mold as `/usr/bin/ld` |
+| `--separate-debug-file[=file]` | Write debug info to a separate file |
+| `--shuffle-sections[=number]` | Randomize output by shuffling input sections |
+| `--spare-program-headers=number` | Append `PT_NULL` entries to program header |
+| `--stats` | Print input statistics |
+| `--thread-count=count` | Set the number of threads |
+| `--threads` / `--no-threads` | Enable or disable multithreading |
+| `--quick-exit` / `--no-quick-exit` | Use or skip `quick_exit` |
+| `--zero-to-bss` | Convert all-zero data sections into BSS |
+| `-z rewrite-endbr` / `-z norewrite-endbr` | Rewrite unused landing pad instructions with NOPs |
+
+### GNU-compatible options (selected)
+
+| Option | Description |
+|--------|-------------|
+| `-E`, `--export-dynamic` | Put all global symbols in the dynamic symbol table |
+| `-I file`, `--dynamic-linker=file` | Set the dynamic linker path |
+| `-L dir`, `--library-path=dir` | Add `dir` to library search paths |
+| `-M`, `--print-map` | Write a map file to stdout |
+| `-N`, `--omagic` | Old-fashioned memory layout (writable text) |
+| `-S`, `--strip-debug` | Omit `.debug_*` sections |
+| `-T file`, `--script=file` | Read linker script from file |
+| `-e symbol`, `--entry=symbol` | Set the entry point symbol |
+| `-l libname` | Search for `lib`*libname*`.so` or `.a` |
+| `-o file`, `--output=file` | Set output filename |
+| `-r`, `--relocatable` | Generate relocatable output |
+| `-s`, `--strip-all` | Omit `.symtab` section |
+| `-u symbol`, `--undefined=symbol` | Pull in object file defining symbol |
+| `--Bstatic` / `--Bdynamic` | Link statically or dynamically |
+| `--Bsymbolic` | Bind global symbols locally in shared libraries |
+| `--as-needed` / `--no-as-needed` | Conditionally add shared libs to `DT_NEEDED` |
+| `--build-id=[md5\|sha1\|sha256\|...]` | Generate a build ID |
+| `--compress-debug-sections=[zlib\|zstd\|none]` | Compress DWARF debug info |
+| `--gc-sections` | Remove unreferenced sections |
+| `--icf=[safe\|all\|none]` | Identical Code Folding |
+| `--pie` | Create a position-independent executable |
+| `--version-script=file` | Read version script |
+| `--whole-archive` | Include all objects from static archives |
+| `--wrap=symbol` | Wrap a symbol with `__wrap_symbol` |
+
+### -z options (selected)
+
+| Option | Description |
+|--------|-------------|
+| `-z cet-report=[warning\|error\|none]` | Check CET compliance of object files |
+| `-z now` / `-z lazy` | Resolve dynamic symbols eagerly or lazily |
+| `-z execstack` / `-z noexecstack` | Make the stack executable or not |
+| `-z execstack-if-needed` | Make stack executable only if input files request it |
+| `-z stack-size=value` | Set the size of the stack segment |
+| `-z relro` / `-z norelro` | Make certain sections read-only after relocation |
+| `-z defs` / `-z nodefs` | Report undefined symbols in shared libs |
+| `-z text` / `-z notext` | Error or allow dynamic relocations in read-only sections |
+| `-z max-page-size=number` | Set maximum supported page size |
+| `-z separate-code` / `-z separate-loadable-segments` | Control page padding between segments |
+| `-z shstk` | Enforce shadow stack (Intel CET) |
+| `-z ibt` / `-z ibtplt` | Enable IBT-enabled PLT (x86) |
+| `-z rewrite-endbr` / `-z norewrite-endbr` | Rewrite unused `ENDBR` landing pads with no-ops (x86-64) |
+| `-z pack-relative-relocs` | Pack `R_*_RELATIVE` relocations (alias for `--pack-dyn-relocs=relr`) |
+| `-z start_stop_visibility=[hidden\|protected]` | Set visibility of `__start_*` / `__stop_*` symbols |
+
+## Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `MOLD_JOBS` | Set to `1` to serialize mold processes (reduces peak memory) |
+| `MOLD_DEBUG` | If set to a non-empty string, embeds command-line options in `.comment` |
+| `MOLD_REPRO` | Setting to a non-empty string has the same effect as `--repro` |

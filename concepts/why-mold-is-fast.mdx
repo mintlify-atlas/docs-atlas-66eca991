@@ -1,0 +1,104 @@
+---
+title: Why mold is fast
+description: A technical explanation of the algorithms, data structures, and architectural decisions that make mold significantly faster than other Unix linkers.
+---
+
+mold is several times faster than LLVM lld, the second-fastest open-source linker. On a simulated 16-core, 32-thread machine, it links major real-world programs in under two seconds:
+
+| Program (output size)   | GNU ld  | GNU gold | LLVM lld | mold   |
+|-------------------------|---------|----------|----------|--------|
+| MySQL 8.3 (0.47 GiB)    | 10.84s  | 7.47s    | 1.64s    | 0.46s  |
+| Clang 19 (1.56 GiB)     | 42.07s  | 33.13s   | 5.20s    | 1.35s  |
+| Chromium 124 (1.35 GiB) | N/A     | 27.40s   | 6.10s    | 1.52s  |
+
+mold is so fast that it is only 2x slower than the `cp` command on the same machine.
+
+Speed comes from two sources: better algorithms and data structures, and aggressive parallelism applied throughout the entire linking process.
+
+## Full-core parallelism
+
+Most linkers have a mostly-serial pipeline with a few parallel sections. mold is parallel from start to finish.
+
+Here is a side-by-side CPU usage comparison of lld (left) and mold (right) linking a Chromium executable. mold uses all available cores throughout its execution and finishes quickly. lld fails to utilize available cores for most of its runtime.
+
+<Info>
+mold uses as many threads as the number of CPU cores, up to 32. You can control this with `--thread-count` or `--no-threads`.
+</Info>
+
+The concurrency model is straightforward: mold executes its internal pipeline passes serially one by one, but each pass is parallelized internally using parallel for-loops. This avoids the complexity of channels, futures, promises, latches, and similar synchronization primitives found in other parallel programs.
+
+## Data parallelism
+
+In most passes, mold adopts a data-parallel approach: a large collection of items of the same kind is processed independently using parallel for-loops. Examples include:
+
+- Scanning all relocation tables to determine the sizes of `.got` and `.plt` sections
+- Parsing input object files
+- Copying section contents from input files to the output file
+
+The granularity of parallelism matches the natural unit of work (e.g., one relocation table per thread). When threads need to share a small amount of state—such as setting a "requires GOT" flag on a symbol—mold uses atomic variables rather than locks.
+
+## Map-reduce for build-id
+
+Build-id computation is a good example of the map-reduce pattern used in mold. Computing a cryptographic hash over the entire output file is inherently slow when done serially.
+
+mold's approach:
+
+1. **Map**: Split the output file into 1 MiB blocks and compute a SHA-256 hash for each block in parallel.
+2. **Reduce**: Concatenate the per-block hashes and compute a final SHA-256 hash over them.
+
+This is a [Merkle tree](https://en.wikipedia.org/wiki/Merkle_tree) of height 2. Modern x86 processors have hardware SHA instructions and can hash at approximately 2 GiB/s. Using 16 cores, a build-id for a 2 GiB executable can be computed in 60–70 milliseconds.
+
+## Concurrent hashmap for symbol resolution
+
+Symbol resolution requires matching every undefined symbol against a table of defined symbols by name. mold does this insertion from a parallel for-loop that iterates over all input files simultaneously, using a concurrent hashmap that supports safe parallel insertions.
+
+## String interning
+
+mold uses [string interning](https://en.wikipedia.org/wiki/String_interning) to accelerate symbol matching and mergeable string deduplication. Once a string is interned, all comparisons reduce to pointer equality, which is much faster than full string comparison. This is especially effective for mergeable string sections, where the linker must deduplicate all null-terminated strings across all input files.
+
+## Faster algorithms: ICF
+
+Identical Code Folding (ICF) merges read-only sections that have identical contents and relocations, reducing output file size. To find identical sections, a linker must solve a graph isomorphism problem.
+
+mold implements a new ICF algorithm that is **5x faster than lld** for Chromium—completing in approximately 1 second versus lld's 5 seconds.
+
+<Tip>
+Use `--icf=safe` for safe ICF (requires Clang's `.llvm_addrsig` section) or `--icf=all` to merge aggressively, including functions whose addresses may be compared.
+</Tip>
+
+## I/O optimization: overwriting existing output files
+
+On Linux, allocating new blocks for a brand-new large file and filling it via `mmap` is limited by filesystem block allocation speed. Overwriting an existing file that is already in the buffer cache is significantly faster.
+
+mold overwrites an existing output file if one is present. In benchmarks, this saved approximately 300 milliseconds when creating a 2 GiB output file. If the output file cannot be opened for writing (e.g., the binary is currently running, which results in a "text busy" error), mold falls back to creating a new file.
+
+## Two-process fork design
+
+When a linker finishes linking a large program, the OS kernel must clean up all the memory mappings created during the link. For a 2 GiB output this cleanup can take several hundred milliseconds—time that appears as latency from the user's perspective.
+
+mold addresses this by forking a child process that does all the actual linking work. As soon as the child writes the output file to the filesystem, it notifies the parent process. The parent exits immediately (hiding the cleanup latency from the build system), while the child exits in the background.
+
+<Note>
+The `--fork` option is enabled by default. Pass `--no-fork` if you need accurate resource usage statistics from `time(2)`, since the parent does not call `waitpid(2)` on the child.
+</Note>
+
+## Summary
+
+<AccordionGroup>
+  <Accordion title="Parallelism techniques">
+    - Parallel for-loops over sections, relocations, and symbols in every pipeline pass
+    - Concurrent hashmap for parallel symbol table construction
+    - Parallel section garbage collection (mark phase)
+    - Parallel ICF algorithm
+  </Accordion>
+  <Accordion title="Algorithmic improvements">
+    - New ICF algorithm: 5x faster than lld for Chromium
+    - Merkle tree hashing for build-id computation
+    - String interning for O(1) symbol and string comparisons
+  </Accordion>
+  <Accordion title="I/O and system-level optimizations">
+    - Overwrite existing output files to benefit from the filesystem buffer cache
+    - Two-process fork to hide OS process-exit latency
+    - Output layout fixed early so relocations can be applied during the copy pass (maximizing CPU cache locality)
+  </Accordion>
+</AccordionGroup>
